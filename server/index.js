@@ -91,14 +91,14 @@ app.get('/api/stats', async (_req, res) => {
 
 // POST /api/crawl
 app.post('/api/crawl', (req, res) => {
-  const { line, lines, types } = req.body || {};
-  const lineTarget = lines || line || null;
+  const { area, areas, types } = req.body || {};
+  const areaTarget = areas || area || null;
   const typeList = types ? (Array.isArray(types) ? types : [types]) : null;
-  const label = Array.isArray(lineTarget) ? lineTarget.join(',') : (lineTarget || '전체 노선');
+  const label = Array.isArray(areaTarget) ? areaTarget.join(',') : (areaTarget || '전체 지역');
   console.log(`크롤링 요청: ${label} / 타입: ${typeList ? typeList.join(',') : '전체'}`);
   res.json({ message: `크롤링 시작: ${label}` });
 
-  runCrawler(lineTarget, null, typeList)
+  runCrawler(areaTarget, typeList)
     .then((summary) => console.log('크롤링 완료:', summary))
     .catch((err) => console.error('크롤링 오류:', err.message));
 });
@@ -110,7 +110,7 @@ app.get('/api/lines', (_req, res) => {
 
 // GET /api/crawl-groups
 app.get('/api/crawl-groups', (_req, res) => {
-  res.json(CRAWL_GROUPS.map((g) => ({ id: g.id, name: g.name, cron: g.cron, lines: g.lines })));
+  res.json(CRAWL_GROUPS.map((g) => ({ id: g.id, name: g.name, cron: g.cron, areas: g.areas })));
 });
 
 // GET /api/stations?line=xxx
@@ -144,7 +144,7 @@ const PORT = process.env.PORT || 5000;
   CRAWL_GROUPS.forEach((group) => {
     cron.schedule(group.cron, () => {
       console.log(`[배치] 그룹 ${group.id}(${group.name}) 시작: ${new Date().toISOString()}`);
-      runCrawler(group.lines)
+      runCrawler(group.areas)
         .then((s) => console.log(`[배치] 그룹 ${group.id}(${group.name}) 완료`, s))
         .catch((err) => console.error(`[배치] 그룹 ${group.id}(${group.name}) 오류`, err.message));
     });
