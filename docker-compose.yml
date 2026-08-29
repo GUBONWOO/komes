@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # 외부에서 직접 접근이 필요하면 포트 오픈
+    # ports:
+    #   - "5432:5432"
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    env_file:
+      - ./server/.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      NODE_ENV: production
+    depends_on:
+      - postgres
+
+  client:
+    build: ./client
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      - server
+
+volumes:
+  postgres_data:
