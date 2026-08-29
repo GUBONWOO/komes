@@ -1,9 +1,15 @@
 import { useState, useEffect } from 'react';
 import { IconPin, IconTrain, IconHome, IconHeart, IconHeartFilled } from './icons';
 import { getPriceHistory } from './api';
+import type { Property, PriceHistoryEntry } from './types';
 
-function PriceHistoryModal({ homesUrl, onClose }) {
-  const [history, setHistory] = useState([]);
+interface PriceHistoryModalProps {
+  homesUrl: string;
+  onClose: () => void;
+}
+
+function PriceHistoryModal({ homesUrl, onClose }: PriceHistoryModalProps) {
+  const [history, setHistory] = useState<PriceHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -13,8 +19,8 @@ function PriceHistoryModal({ homesUrl, onClose }) {
       .finally(() => setLoading(false));
   }, [homesUrl]);
 
-  const fmt = (n) => Number(n).toLocaleString();
-  const fmtDate = (s) => {
+  const fmt = (n: number) => Number(n).toLocaleString();
+  const fmtDate = (s: string) => {
     const d = new Date(s);
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
   };
@@ -58,10 +64,16 @@ function PriceHistoryModal({ homesUrl, onClose }) {
   );
 }
 
-export default function PropertyCard({ property: p, isFavorite, onToggleFavorite }) {
+interface PropertyCardProps {
+  property: Property;
+  isFavorite: boolean;
+  onToggleFavorite: (property: Property) => void;
+}
+
+export default function PropertyCard({ property: p, isFavorite, onToggleFavorite }: PropertyCardProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const hasChange = p.price_change_count > 0;
+  const hasChange = (p.price_change_count ?? 0) > 0;
   const isSold = p.is_listed === false;
 
   return (
@@ -72,11 +84,12 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
             <img
               className="card-img"
               src={p.image_url}
-              alt={p.name || '物件写真'}
+              alt={p.name ?? '物件写真'}
               loading="lazy"
               onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                e.currentTarget.nextSibling.style.display = 'flex';
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                const next = e.currentTarget.nextSibling as HTMLElement | null;
+                if (next) next.style.display = 'flex';
               }}
             />
           ) : null}
@@ -93,10 +106,7 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
           <div className="card-price-row">
             <span className="card-price">{p.price}</span>
             {hasChange && (
-              <button
-                className="price-change-badge"
-                onClick={() => setHistoryOpen(true)}
-              >
+              <button className="price-change-badge" onClick={() => setHistoryOpen(true)}>
                 価格履歴あり
               </button>
             )}
@@ -115,22 +125,22 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
             <div className="detail-row">
               <span className="detail-icon"><IconPin /></span>
               <span className="detail-label">所在地</span>
-              <span className="detail-value">{p.address || '-'}</span>
+              <span className="detail-value">{p.address ?? '-'}</span>
             </div>
             <div className="detail-row">
               <span className="detail-icon"><IconTrain /></span>
               <span className="detail-label">交通</span>
-              <span className="detail-value transport">{p.transport || '-'}</span>
+              <span className="detail-value transport">{p.transport ?? '-'}</span>
             </div>
             <div className="detail-specs">
               <div className="spec-item">
                 <span className="spec-label">土地面積</span>
-                <span className="spec-value">{p.land_area || '-'}</span>
+                <span className="spec-value">{p.land_area ?? '-'}</span>
               </div>
               <div className="spec-sep" />
               <div className="spec-item">
                 <span className="spec-label">建物面積</span>
-                <span className="spec-value">{p.building_area || '-'}</span>
+                <span className="spec-value">{p.building_area ?? '-'}</span>
               </div>
               <div className="spec-sep" />
               <div className="spec-item">
@@ -149,7 +159,7 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
         </div>
       </div>
 
-      {historyOpen && (
+      {historyOpen && p.homes_url && (
         <PriceHistoryModal homesUrl={p.homes_url} onClose={() => setHistoryOpen(false)} />
       )}
     </>

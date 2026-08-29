@@ -1,7 +1,6 @@
-// 크롤링 대상 지역 목록 — db.js와 crawler.js 양쪽에서 참조
-// slug는 HOMES URL에서 사용하는 영문 지역 코드
-// https://www.homes.co.jp/mansion/chuko/{prefecture}/{slug}/list/
-const LINES = [
+import type { Area } from './types';
+
+export const LINES: Area[] = [
   // ── 東京都 23区 ──
   { name: '千代田区', slug: 'chiyoda-city',   prefecture: 'tokyo' },
   { name: '中央区',   slug: 'chuo-city',       prefecture: 'tokyo' },
@@ -38,7 +37,5 @@ const LINES = [
   { name: '市川市',   slug: 'ichikawa-city',   prefecture: 'chiba' },
 ];
 
-// slug → 테이블명 (koto-city → prop_koto_city)
-const getTableName = (slug) => `prop_${slug.replace(/-/g, '_')}`;
-
-module.exports = { LINES, getTableName };
+export const getTableName = (slug: string): string =>
+  `prop_${slug.replace(/-/g, '_')}`;

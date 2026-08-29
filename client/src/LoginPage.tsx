@@ -5,10 +5,10 @@ export default function LoginPage() {
         <div className="logo-area" style={{ justifyContent: 'center', marginBottom: '8px' }}>
           <div className="logo">
             <span className="logo-s">K</span>
-            <span className="logo-uumo">OOMO</span>
+            <span className="logo-uumo">OMES</span>
           </div>
         </div>
-        <p className="login-sub">一戸建て物件検索ツール</p>
+        <p className="login-sub">一戸建て・マンション検索</p>
         <p className="login-desc">続けるにはGoogleアカウントでログインしてください</p>
         <a className="google-btn" href="/auth/google">
           <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">

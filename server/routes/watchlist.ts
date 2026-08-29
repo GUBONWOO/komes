@@ -1,11 +1,9 @@
-const { Router } = require('express');
-const { pool } = require('../db');
+import { Router, Request, Response } from 'express';
+import { pool } from '../db';
 
 const router = Router();
 
-// GET /api/watchlist
-// properties에 아직 있으면 최신 데이터, 삭제된 경우 스냅샷 반환
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const { rows } = await pool.query(
       `SELECT
@@ -36,19 +34,18 @@ router.get('/', async (req, res) => {
        LEFT JOIN properties p ON p.homes_url = w.homes_url
        WHERE w.user_id = $1
        ORDER BY w.created_at DESC`,
-      [req.user.id]
+      [req.user!.id]
     );
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
-// POST /api/watchlist/:id  (property.id 기준으로 추가, 스냅샷 복사)
-router.post('/:id', async (req, res) => {
+router.post('/:id', async (req: Request, res: Response) => {
   try {
     const { rows } = await pool.query('SELECT * FROM properties WHERE id = $1', [req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: '物件が見つかりません' });
+    if (!rows.length) { res.status(404).json({ error: '物件が見つかりません' }); return; }
     const p = rows[0];
 
     await pool.query(
@@ -58,38 +55,37 @@ router.post('/:id', async (req, res) => {
           building_area, building_area_num, year_built, property_type, image_url)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        ON CONFLICT (user_id, homes_url) DO NOTHING`,
-      [req.user.id, p.homes_url, p.id, p.name, p.price, p.price_num,
+      [req.user!.id, p.homes_url, p.id, p.name, p.price, p.price_num,
        p.address, p.transport, p.line_name, p.station, p.walk_min, p.layout,
        p.land_area, p.land_area_num, p.building_area, p.building_area_num,
        p.year_built, p.property_type, p.image_url]
     );
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
-// DELETE /api/watchlist/:id  (property.id 기준으로 제거)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    // 먼저 properties 테이블에서 homes_url 조회
-    const propResult = await pool.query('SELECT homes_url FROM properties WHERE id = $1', [req.params.id]);
+    const propResult = await pool.query<{ homes_url: string }>(
+      'SELECT homes_url FROM properties WHERE id = $1', [req.params.id]
+    );
     if (propResult.rows.length > 0) {
       await pool.query(
         'DELETE FROM watchlist WHERE user_id = $1 AND homes_url = $2',
-        [req.user.id, propResult.rows[0].homes_url]
+        [req.user!.id, propResult.rows[0].homes_url]
       );
     } else {
-      // property가 이미 삭제된 경우, 저장된 property_id로 삭제
       await pool.query(
         'DELETE FROM watchlist WHERE user_id = $1 AND property_id = $2',
-        [req.user.id, req.params.id]
+        [req.user!.id, req.params.id]
       );
     }
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
-module.exports = router;
+export default router;

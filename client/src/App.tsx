@@ -6,44 +6,36 @@ import Pagination from './Pagination';
 import LoginPage from './LoginPage';
 import { IconChart, IconMoon, IconSun, IconHome, IconHeartFilled } from './icons';
 import {
-  SORT_OPTIONS,
-  PRICE_OPTIONS,
-  YEAR_OPTIONS,
-  WALK_OPTIONS,
-  AREA_OPTIONS,
-  AGE_TYPE_OPTIONS,
-  BUILDING_TYPE_OPTIONS,
-  LAND_AREA_OPTIONS,
-  BUILDING_AREA_OPTIONS,
-  PAGE_LIMIT,
+  SORT_OPTIONS, PRICE_OPTIONS, YEAR_OPTIONS, WALK_OPTIONS,
+  AREA_OPTIONS, AGE_TYPE_OPTIONS, BUILDING_TYPE_OPTIONS,
+  LAND_AREA_OPTIONS, BUILDING_AREA_OPTIONS, PAGE_LIMIT,
 } from './constants';
+import type { Property, UserProfile, Stats, StationInfo } from './types';
 import './App.css';
 
 export default function App() {
-  const [properties, setProperties] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [selectedLine, setSelectedLine] = useState('');
-  const [selectedStations, setSelectedStations] = useState([]);
-  const [stations, setStations] = useState([]);
+  const [properties, setProperties]       = useState<Property[]>([]);
+  const [stats, setStats]                 = useState<Stats | null>(null);
+  const [selectedLine, setSelectedLine]   = useState('');
+  const [selectedStations, setSelectedStations] = useState<string[]>([]);
+  const [stations, setStations]           = useState<StationInfo[]>([]);
   const [buildingTypeIdx, setBuildingTypeIdx] = useState(0);
-  const [ageTypeIdx, setAgeTypeIdx] = useState(0);
-  const [areaIdx, setAreaIdx] = useState(0);
-  const [priceIdx, setPriceIdx] = useState(0);
-  const [yearIdx, setYearIdx] = useState(0);
-  const [walkIdx, setWalkIdx] = useState(0);
-  const [landAreaIdx, setLandAreaIdx] = useState(0);
+  const [ageTypeIdx, setAgeTypeIdx]       = useState(0);
+  const [areaIdx, setAreaIdx]             = useState(0);
+  const [priceIdx, setPriceIdx]           = useState(0);
+  const [yearIdx, setYearIdx]             = useState(0);
+  const [walkIdx, setWalkIdx]             = useState(0);
+  const [landAreaIdx, setLandAreaIdx]     = useState(0);
   const [buildingAreaIdx, setBuildingAreaIdx] = useState(0);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const isPageChange = useRef(false);
-  const abortRef = useRef(null);
-  const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState('default');
-  const [darkMode, setDarkMode] = useState(
-    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
-  );
-  const [user, setUser] = useState(undefined); // undefined=로딩중, null=미로그인
-  const [watchlist, setWatchlist] = useState([]);
+  const [page, setPage]                   = useState(1);
+  const [total, setTotal]                 = useState(0);
+  const isPageChange                      = useRef(false);
+  const abortRef                          = useRef<AbortController | null>(null);
+  const [loading, setLoading]             = useState(false);
+  const [sortBy, setSortBy]               = useState('default');
+  const [darkMode, setDarkMode]           = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const [user, setUser]                   = useState<UserProfile | null | undefined>(undefined);
+  const [watchlist, setWatchlist]         = useState<Property[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
 
   useEffect(() => {
@@ -52,10 +44,7 @@ export default function App() {
 
   useEffect(() => {
     getMe()
-      .then((r) => {
-        setUser(r.data);
-        return getWatchlist();
-      })
+      .then((r) => { setUser(r.data); return getWatchlist(); })
       .then((r) => setWatchlist(r.data))
       .catch(() => setUser(null));
   }, []);
@@ -65,7 +54,7 @@ export default function App() {
     setUser(null);
   };
 
-  const toggleFavorite = async (property) => {
+  const toggleFavorite = async (property: Property) => {
     const exists = watchlist.find((w) => w.homes_url === property.homes_url);
     if (exists) {
       await removeWatchlist(property.id);
@@ -85,84 +74,67 @@ export default function App() {
 
     setLoading(true);
     const buildingType = BUILDING_TYPE_OPTIONS[buildingTypeIdx];
-    const ageType = AGE_TYPE_OPTIONS[ageTypeIdx];
-    const area = AREA_OPTIONS[areaIdx];
-    const price = PRICE_OPTIONS[priceIdx];
-    const year = YEAR_OPTIONS[yearIdx];
-    const walk = WALK_OPTIONS[walkIdx];
-    const landArea = LAND_AREA_OPTIONS[landAreaIdx];
+    const ageType      = AGE_TYPE_OPTIONS[ageTypeIdx];
+    const area         = AREA_OPTIONS[areaIdx];
+    const price        = PRICE_OPTIONS[priceIdx];
+    const year         = YEAR_OPTIONS[yearIdx];
+    const walk         = WALK_OPTIONS[walkIdx];
+    const landArea     = LAND_AREA_OPTIONS[landAreaIdx];
     const buildingArea = BUILDING_AREA_OPTIONS[buildingAreaIdx];
+
     try {
       const skipCount = isPageChange.current;
       const res = await getProperties(
         {
-          line: selectedLine || undefined,
-          area: area.value,
-          station: selectedStations.length > 0 ? selectedStations.join(',') : undefined,
-          buildingType: buildingType.value,
-          ageType: ageType.value,
-          priceMin: price.min,
-          priceMax: price.max,
-          yearFrom: year.from,
-          walkMax: walk.max,
-          landAreaMin: landArea.min,
-          landAreaMax: landArea.max,
+          line:            selectedLine || undefined,
+          area:            area.value,
+          station:         selectedStations.length > 0 ? selectedStations.join(',') : undefined,
+          buildingType:    buildingType.value,
+          ageType:         ageType.value,
+          priceMin:        price.min,
+          priceMax:        price.max,
+          yearFrom:        year.from,
+          walkMax:         walk.max,
+          landAreaMin:     landArea.min,
+          landAreaMax:     landArea.max,
           buildingAreaMin: buildingArea.min,
           buildingAreaMax: buildingArea.max,
-          sortBy: sortBy !== 'default' ? sortBy : undefined,
+          sortBy:          sortBy !== 'default' ? sortBy : undefined,
           page,
-          limit: PAGE_LIMIT,
-          skipCount: skipCount ? 'true' : undefined,
+          limit:           PAGE_LIMIT,
+          skipCount:       skipCount ? 'true' : undefined,
         },
-        signal,
+        signal
       );
       isPageChange.current = false;
       setProperties(res.data.data);
       if (res.data.total !== null) setTotal(res.data.total);
-    } catch (e) {
-      if (e.name !== 'CanceledError') console.error(e);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'CanceledError') console.error(e);
     } finally {
       setLoading(false);
     }
   }, [
-    selectedLine,
-    selectedStations,
-    buildingTypeIdx,
-    ageTypeIdx,
-    areaIdx,
-    priceIdx,
-    yearIdx,
-    walkIdx,
-    landAreaIdx,
-    buildingAreaIdx,
-    sortBy,
-    page,
+    selectedLine, selectedStations, buildingTypeIdx, ageTypeIdx,
+    areaIdx, priceIdx, yearIdx, walkIdx, landAreaIdx, buildingAreaIdx, sortBy, page,
   ]);
 
-  useEffect(() => {
-    getStats()
-      .then((r) => setStats(r.data))
-      .catch(() => {});
-  }, []);
+  useEffect(() => { getStats().then((r) => setStats(r.data)).catch(() => {}); }, []);
 
   useEffect(() => {
     setSelectedStations([]);
-    getStations(selectedLine || null)
-      .then((r) => setStations(r.data))
-      .catch(() => {});
+    getStations(selectedLine || null).then((r) => setStations(r.data)).catch(() => {});
   }, [selectedLine]);
 
-  useEffect(() => {
-    fetchProperties();
-  }, [fetchProperties]);
+  useEffect(() => { fetchProperties(); }, [fetchProperties]);
 
-  const handlePageChange = (p) => {
+  const handlePageChange = (p: number) => {
     isPageChange.current = true;
     setPage(p);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleFilter = (setter) => (val) => {
+  const handleFilter = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) => (val: T) => {
     isPageChange.current = false;
     setter(val);
     setPage(1);
@@ -170,14 +142,14 @@ export default function App() {
 
   const totalPages = Math.ceil(total / PAGE_LIMIT);
 
-  if (user === undefined) return null; // 인증 확인 중
+  if (user === undefined) return null;
   if (user === null) return <LoginPage />;
 
   return (
     <div className='app'>
       <div className='top-nav'>
         <div className='top-nav-inner'>
-          <span className='top-nav-text'>スーモ独自調査ツール</span>
+          <span className='top-nav-text'>HOMES物件検索ツール</span>
           <div className='top-nav-right'>
             <button
               className='theme-toggle'
@@ -203,7 +175,7 @@ export default function App() {
           <div className='logo-area'>
             <div className='logo'>
               <span className='logo-s'>K</span>
-              <span className='logo-uumo'>OOMO</span>
+              <span className='logo-uumo'>OMES</span>
             </div>
             <div className='logo-sub'>一戸建て・マンション</div>
           </div>
@@ -229,7 +201,7 @@ export default function App() {
                 <div className='property-list'>
                   {watchlist.map((p) => (
                     <PropertyCard
-                      key={p.homes_url}
+                      key={p.homes_url ?? p.id}
                       property={p}
                       isFavorite={true}
                       onToggleFavorite={toggleFavorite}
@@ -246,19 +218,14 @@ export default function App() {
         <aside className='sidebar'>
           {stats && (
             <div className='sidebar-section'>
-              <div className='sidebar-title'>
-                <IconChart />
-                路線別件数
-              </div>
+              <div className='sidebar-title'><IconChart />路線別件数</div>
               <div className='stats-list'>
                 <div
                   className={`stats-item ${!selectedLine ? 'active' : ''}`}
                   onClick={() => handleFilter(setSelectedLine)('')}
                 >
                   <span className='stats-line-name'>全路線</span>
-                  <span className='stats-count'>
-                    {stats.total.toLocaleString()}
-                  </span>
+                  <span className='stats-count'>{stats.total.toLocaleString()}</span>
                 </div>
                 {stats.byLine.map((s) => (
                   <div
@@ -267,9 +234,7 @@ export default function App() {
                     onClick={() => handleFilter(setSelectedLine)(s.line_name)}
                   >
                     <span className='stats-line-name'>{s.line_name}</span>
-                    <span className='stats-count'>
-                      {parseInt(s.count).toLocaleString()}
-                    </span>
+                    <span className='stats-count'>{parseInt(s.count).toLocaleString()}</span>
                   </div>
                 ))}
               </div>
@@ -291,18 +256,14 @@ export default function App() {
                     className={`stats-item ${selectedStations.includes(s.station) ? 'active' : ''}`}
                     onClick={() => {
                       setSelectedStations((prev) =>
-                        prev.includes(s.station)
-                          ? prev.filter((x) => x !== s.station)
-                          : [...prev, s.station]
+                        prev.includes(s.station) ? prev.filter((x) => x !== s.station) : [...prev, s.station]
                       );
                       setPage(1);
                       isPageChange.current = false;
                     }}
                   >
                     <span className='stats-line-name'>{s.station}</span>
-                    <span className='stats-count'>
-                      {parseInt(s.count).toLocaleString()}
-                    </span>
+                    <span className='stats-count'>{parseInt(s.count).toLocaleString()}</span>
                   </div>
                 ))}
               </div>
@@ -312,25 +273,14 @@ export default function App() {
 
         <main className='main-content'>
           <FilterBar
-            buildingTypeIdx={buildingTypeIdx}
-            onBuildingType={handleFilter(setBuildingTypeIdx)}
-            ageTypeIdx={ageTypeIdx}
-            onAgeType={(i) => {
-              handleFilter(setAgeTypeIdx)(i);
-              if (AGE_TYPE_OPTIONS[i]?.value === 'shinchiku') setYearIdx(0);
-            }}
-            areaIdx={areaIdx}
-            onArea={handleFilter(setAreaIdx)}
-            priceIdx={priceIdx}
-            onPrice={handleFilter(setPriceIdx)}
-            walkIdx={walkIdx}
-            onWalk={handleFilter(setWalkIdx)}
-            landAreaIdx={landAreaIdx}
-            onLandArea={handleFilter(setLandAreaIdx)}
-            buildingAreaIdx={buildingAreaIdx}
-            onBuildingArea={handleFilter(setBuildingAreaIdx)}
-            yearIdx={yearIdx}
-            onYear={handleFilter(setYearIdx)}
+            buildingTypeIdx={buildingTypeIdx} onBuildingType={handleFilter(setBuildingTypeIdx)}
+            ageTypeIdx={ageTypeIdx}           onAgeType={(i) => { handleFilter(setAgeTypeIdx)(i); if (AGE_TYPE_OPTIONS[i]?.value === 'shinchiku') setYearIdx(0); }}
+            areaIdx={areaIdx}                 onArea={handleFilter(setAreaIdx)}
+            priceIdx={priceIdx}               onPrice={handleFilter(setPriceIdx)}
+            walkIdx={walkIdx}                 onWalk={handleFilter(setWalkIdx)}
+            landAreaIdx={landAreaIdx}         onLandArea={handleFilter(setLandAreaIdx)}
+            buildingAreaIdx={buildingAreaIdx} onBuildingArea={handleFilter(setBuildingAreaIdx)}
+            yearIdx={yearIdx}                 onYear={handleFilter(setYearIdx)}
           />
 
           <div className='result-header'>
@@ -340,18 +290,9 @@ export default function App() {
               <span className='result-unit'>件</span>
             </div>
             <div className='filter-area'>
-              <select
-                className='line-select'
-                value={sortBy}
-                onChange={(e) => {
-                  setSortBy(e.target.value);
-                  setPage(1);
-                }}
-              >
+              <select className='line-select' value={sortBy} onChange={(e) => { setSortBy(e.target.value); setPage(1); }}>
                 {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>
@@ -364,9 +305,7 @@ export default function App() {
             </div>
           ) : properties.length === 0 ? (
             <div className='empty-state'>
-              <div className='empty-icon'>
-                <IconHome />
-              </div>
+              <div className='empty-icon'><IconHome /></div>
               <p className='empty-title'>物件が見つかりません</p>
               <p className='empty-desc'>条件を変更してください</p>
             </div>
@@ -384,11 +323,7 @@ export default function App() {
           )}
 
           {totalPages > 1 && (
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              onPage={handlePageChange}
-            />
+            <Pagination page={page} totalPages={totalPages} onPage={handlePageChange} />
           )}
         </main>
       </div>
