@@ -1,6 +1,8 @@
 import puppeteerExtra from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { Browser, Page } from 'puppeteer';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 puppeteerExtra.use(StealthPlugin());
 import { pool } from './db';
@@ -9,9 +11,9 @@ import type { Area, UrlType, CrawlGroup, RawBrowserItem, PropertyItem, SaveResul
 
 const BASE_URL = 'https://www.homes.co.jp';
 const ITEMS_PER_PAGE = 30;
-const MAX_PAGES = 3; // stay under HOMES bot detection threshold
-const PAGE_DELAY_MS = 5000;
-const PAGE_DELAY_JITTER = 3000; // random extra 0-3s per page
+const MAX_PAGES = 15;
+const PAGE_DELAY_MS = 2000;
+const PAGE_DELAY_JITTER = 1500;
 const AREA_DELAY_MS = 4000;
 const MIN_DELETE_RATIO = 0.3;
 
@@ -109,6 +111,69 @@ interface ScrapedResult {
   rawItems: RawBrowserItem[];
   totalStr: string;
 }
+
+// cheerio로 HTML 파싱 (Puppeteer page.evaluate와 동일한 로직)
+const parseHtml = (html: string): ScrapedResult => {
+  const $ = cheerio.load(html);
+  const rawItems: RawBrowserItem[] = [];
+
+  $('table.unitSummary').each((_, card) => {
+    const $c = $(card);
+    const relUrl = $c.find('tr[data-href]').attr('data-href') ?? null;
+    const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : BASE_URL + relUrl) : null;
+    const price     = $c.find('.priceLabel').first().text().trim() || null;
+    const transport = $c.find('td.traffic').first().text().trim() || null;
+    const $img      = $c.find('img.prg-lazy-display').first();
+    const imageUrl  = $img.attr('data-original') ?? null;
+    const name      = $img.attr('alt')?.trim() ?? null;
+
+    let address: string | null = null, layout: string | null = null;
+    let buildingArea: string | null = null, landArea: string | null = null, yearBuilt: string | null = null;
+
+    $c.find('table.verticalTable tr').each((_, row) => {
+      const cells = $(row).children().toArray();
+      for (let i = 0; i < cells.length - 1; i++) {
+        if (!$(cells[i]).is('th')) continue;
+        const th = $(cells[i]).text().trim();
+        const td = $(cells[i + 1]).is('td') ? $(cells[i + 1]).text().trim() || null : null;
+        if (th.includes('所在地')) address = td;
+        else if (th.includes('間取り')) layout = td;
+        else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
+        else if (th.includes('土地面積')) landArea = td;
+        else if (th.includes('築年月') || th.includes('築年')) yearBuilt = td;
+      }
+    });
+
+    rawItems.push({ name, price, address, transport, layout, buildingArea, landArea, yearBuilt, url: cardUrl, imageUrl });
+  });
+
+  const totalStr = $('.totalNum').first().text().trim() || '0';
+  return { rawItems, totalStr };
+};
+
+const AXIOS_HEADERS = {
+  'User-Agent':      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'ja-JP,ja;q=0.9',
+  'Sec-Fetch-Dest':  'document',
+  'Sec-Fetch-Mode':  'navigate',
+  'Sec-Fetch-Site':  'same-origin',
+  'Referer':         'https://www.homes.co.jp/',
+};
+
+// axios로 페이지 가져오기 (Puppeteer에서 추출한 쿠키 사용)
+const scrapePageAxios = async (url: string, cookieHeader: string): Promise<ScrapedResult> => {
+  try {
+    const r = await axios.get<string>(url, {
+      headers: { ...AXIOS_HEADERS, Cookie: cookieHeader },
+      timeout: 20000,
+    });
+    if (!r.data.includes('unitSummary')) return { rawItems: [], totalStr: '0' };
+    return parseHtml(r.data);
+  } catch {
+    return { rawItems: [], totalStr: '0' };
+  }
+};
 
 const isBlocked = async (page: Page): Promise<boolean> => {
   const title = await page.evaluate(() => document.title);
@@ -218,10 +283,14 @@ const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Pr
       console.log('[DEBUG] 첫 카드:', JSON.stringify(firstRaw[0], null, 2));
     }
 
+    // Puppeteer로 얻은 WAF 쿠키 → 나머지 페이지는 axios로 처리
+    const cookies = await page.cookies();
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+
     for (let p = 2; p <= totalPages; p++) {
       await sleep(PAGE_DELAY_MS + Math.random() * PAGE_DELAY_JITTER);
       try {
-        const { rawItems } = await scrapePage(page, buildUrl(p));
+        const { rawItems } = await scrapePageAxios(buildUrl(p), cookieHeader);
         const items = buildItems(rawItems, urlType, area.name);
         allItems.push(...items);
         console.log(`  [${area.name}/${urlType.type}] ${p}/${totalPages}p → ${items.length}건`);
