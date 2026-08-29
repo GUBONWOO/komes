@@ -9,7 +9,7 @@ import type { Area, UrlType, CrawlGroup, RawBrowserItem, PropertyItem, SaveResul
 
 const BASE_URL = 'https://www.homes.co.jp';
 const ITEMS_PER_PAGE = 30;
-const MAX_PAGES = 30;
+const MAX_PAGES = 3; // stay under HOMES bot detection threshold
 const PAGE_DELAY_MS = 5000;
 const PAGE_DELAY_JITTER = 3000; // random extra 0-3s per page
 const AREA_DELAY_MS = 4000;

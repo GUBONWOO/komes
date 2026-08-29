@@ -46,7 +46,7 @@ const INTERNAL_NETWORK = process.env.INTERNAL_NETWORK ?? '';
 app.use((req: Request, _res: Response, next: NextFunction) => {
   if (INTERNAL_NETWORK) {
     const ip = req.ip ?? req.socket.remoteAddress ?? '';
-    if (ip.startsWith(INTERNAL_NETWORK) || ip === '::1' || ip === '127.0.0.1') {
+    if (ip.startsWith(INTERNAL_NETWORK) || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') {
       req.user = { id: 'admin', name: '관리자', email: 'admin@local' };
       return next();
     }
