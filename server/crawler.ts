@@ -1,4 +1,8 @@
-import puppeteer, { Browser, Page } from 'puppeteer';
+import puppeteerExtra from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import type { Browser, Page } from 'puppeteer';
+
+puppeteerExtra.use(StealthPlugin());
 import { pool } from './db';
 import { LINES, getTableName } from './lines';
 import type { Area, UrlType, CrawlGroup, RawBrowserItem, PropertyItem, SaveResult, CrawlSummary } from './types';
@@ -6,7 +10,8 @@ import type { Area, UrlType, CrawlGroup, RawBrowserItem, PropertyItem, SaveResul
 const BASE_URL = 'https://www.homes.co.jp';
 const ITEMS_PER_PAGE = 30;
 const MAX_PAGES = 30;
-const PAGE_DELAY_MS = 2500;
+const PAGE_DELAY_MS = 5000;
+const PAGE_DELAY_JITTER = 3000; // random extra 0-3s per page
 const AREA_DELAY_MS = 4000;
 const MIN_DELETE_RATIO = 0.3;
 
@@ -105,8 +110,27 @@ interface ScrapedResult {
   totalStr: string;
 }
 
-const scrapePage = async (page: Page, url: string): Promise<ScrapedResult> => {
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+const isBlocked = async (page: Page): Promise<boolean> => {
+  const title = await page.evaluate(() => document.title);
+  return title.includes('Verification') || title.includes('403') || title.includes('Error');
+};
+
+const scrapePage = async (page: Page, url: string, retryOnBlock = true): Promise<ScrapedResult> => {
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+
+  if (await isBlocked(page)) {
+    if (retryOnBlock) {
+      console.warn(`  [bot detection] ${url} — waiting 20s then retry`);
+      await sleep(20000);
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+      if (await isBlocked(page)) {
+        console.warn(`  [bot detection] retry failed, skipping page`);
+        return { rawItems: [], totalStr: '0' };
+      }
+    } else {
+      return { rawItems: [], totalStr: '0' };
+    }
+  }
 
   let hasCards = false;
   try {
@@ -176,8 +200,8 @@ const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Pr
   };
 
   const page = await browser.newPage();
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-  await page.setExtraHTTPHeaders({ 'Accept-Language': 'ja-JP,ja;q=0.9' });
+  await page.setViewport({ width: 1280, height: 800 });
+  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   const allItems: PropertyItem[] = [];
   try {
@@ -195,7 +219,7 @@ const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Pr
     }
 
     for (let p = 2; p <= totalPages; p++) {
-      await sleep(PAGE_DELAY_MS);
+      await sleep(PAGE_DELAY_MS + Math.random() * PAGE_DELAY_JITTER);
       try {
         const { rawItems } = await scrapePage(page, buildUrl(p));
         const items = buildItems(rawItems, urlType, area.name);
@@ -317,10 +341,10 @@ export const runCrawler = async (areaNames: string | string[] | null = null, tar
     ? URL_TYPES.filter((t) => targetTypes.includes(t.type))
     : URL_TYPES;
 
-  const browser = await puppeteer.launch({
+  const browser = await puppeteerExtra.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-  });
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  }) as Browser;
 
   const summary: CrawlSummary[] = [];
   try {
