@@ -12,21 +12,8 @@ const MIN_DELETE_RATIO = 0.3;
 
 const DEBUG = process.env.CRAWL_DEBUG === 'true';
 
-// HOMES 페이지 CSS 셀렉터 — test-crawl.ts 실행 후 실제 클래스로 수정
-const SEL = {
-  card:         '.mod-mergeBuilding--sale',
-  name:         '.mod-mergeBuilding__name',
-  price:        '.mod-mergeBuilding__price',
-  address:      '.mod-mergeBuilding__address',
-  transport:    '.mod-mergeBuilding__traffic',
-  layout:       '.mod-mergeBuilding__layout',
-  buildingArea: '.mod-mergeBuilding__area',
-  landArea:     '.mod-mergeBuilding__landArea',
-  yearBuilt:    '.mod-mergeBuilding__age',
-  totalCount:   '.mod-searchResult__total',
-} as const;
-
-type Selectors = typeof SEL;
+// HOMES 페이지 CSS 셀렉터 (test-crawl.ts로 확인)
+const CARD_SEL = 'table.unitSummary';
 
 export const URL_TYPES: UrlType[] = [
   { type: 'chuko_mansion',     path: 'mansion/chuko',    label: '中古マンション' },
@@ -123,39 +110,63 @@ const scrapePage = async (page: Page, url: string): Promise<ScrapedResult> => {
 
   let hasCards = false;
   try {
-    await page.waitForSelector(SEL.card, { timeout: 12000 });
+    await page.waitForSelector(CARD_SEL, { timeout: 12000 });
     hasCards = true;
   } catch {
-    // 해당 페이지에 매물 없음
+    // no listings on this page
   }
 
   if (!hasCards) return { rawItems: [], totalStr: '0' };
 
-  return page.evaluate((sel: Selectors): ScrapedResult => {
-    const q = (el: Element, selector: string): string | null => {
-      try { return el.querySelector(selector)?.textContent?.trim() ?? null; } catch { return null; }
-    };
-    const cards = Array.from(document.querySelectorAll(sel.card));
-    const rawItems: RawBrowserItem[] = cards.map((card) => {
-      const link = card.querySelector<HTMLAnchorElement>('a[href*="/mansion/b-"], a[href*="/kodate/b-"]')
-                ?? card.querySelector<HTMLAnchorElement>('a[href]');
-      const img = card.querySelector<HTMLImageElement>('img[src]:not([src=""])');
-      return {
-        name:        q(card, sel.name),
-        price:       q(card, sel.price),
-        address:     q(card, sel.address),
-        transport:   q(card, sel.transport),
-        layout:      q(card, sel.layout),
-        buildingArea:q(card, sel.buildingArea),
-        landArea:    q(card, sel.landArea),
-        yearBuilt:   q(card, sel.yearBuilt),
-        url:         link?.href ?? null,
-        imageUrl:    img?.src ?? null,
-      };
+  return page.evaluate((baseUrl: string) => {
+    const cards = Array.from(document.querySelectorAll('table.unitSummary'));
+
+    const rawItems = cards.map((card) => {
+      // URL: tr[data-href] attribute (relative path)
+      const relUrl = card.querySelector('tr[data-href]')?.getAttribute('data-href') ?? null;
+      const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : baseUrl + relUrl) : null;
+
+      // Price
+      const price = card.querySelector('.priceLabel')?.textContent?.trim() ?? null;
+
+      // Transport
+      const transport = card.querySelector('td.traffic')?.textContent?.trim() ?? null;
+
+      // Image (lazy-loaded: src is placeholder gif, real URL is data-original)
+      const img = card.querySelector('img.prg-lazy-display');
+      const imageUrl = img?.getAttribute('data-original') ?? null;
+      const name = img?.getAttribute('alt')?.trim() ?? null;
+
+      // Address, layout, area sizes, year from verticalTable th→td
+      let address: string | null = null;
+      let layout: string | null = null;
+      let buildingArea: string | null = null;
+      let landArea: string | null = null;
+      let yearBuilt: string | null = null;
+
+      // Each verticalTable row may have multiple th/td pairs side by side
+      for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
+        const cells = Array.from(row.children);
+        for (let i = 0; i < cells.length - 1; i++) {
+          if (cells[i].tagName !== 'TH') continue;
+          const th = cells[i].textContent?.trim() ?? '';
+          const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
+          if (th.includes('所在地')) address = td;
+          else if (th.includes('間取り')) layout = td;
+          else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
+          else if (th.includes('土地面積')) landArea = td;
+          else if (th.includes('築年月') || th.includes('築年')) yearBuilt = td;
+        }
+      }
+
+      return { name, price, address, transport, layout, buildingArea, landArea, yearBuilt, url: cardUrl, imageUrl };
     });
-    const totalStr = document.querySelector(sel.totalCount)?.textContent?.trim() ?? '0';
+
+    // Total count (span.totalNum confirmed by test)
+    const totalStr = document.querySelector('.totalNum')?.textContent?.trim() ?? '0';
+
     return { rawItems, totalStr };
-  }, SEL);
+  }, BASE_URL) as Promise<ScrapedResult>;
 };
 
 const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Promise<PropertyItem[]> => {
@@ -172,7 +183,9 @@ const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Pr
   try {
     const { rawItems: firstRaw, totalStr } = await scrapePage(page, buildUrl(1));
     const totalItems = parseInt(totalStr.replace(/[^0-9]/g, ''), 10) || 0;
-    const totalPages = Math.min(Math.ceil(totalItems / ITEMS_PER_PAGE) || 1, MAX_PAGES);
+    const knownPages = totalItems > 0 ? Math.ceil(totalItems / ITEMS_PER_PAGE) : 0;
+    // If total unknown but page 1 had a full set of items, try remaining pages up to MAX_PAGES
+    const totalPages = Math.min(knownPages || (firstRaw.length >= ITEMS_PER_PAGE ? MAX_PAGES : 1), MAX_PAGES);
     const firstItems = buildItems(firstRaw, urlType, area.name);
     allItems.push(...firstItems);
     console.log(`  [${area.name}/${urlType.type}] 1/${totalPages}p → ${firstItems.length}건`);
