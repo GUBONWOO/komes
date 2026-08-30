@@ -10,6 +10,8 @@ const MAX_PAGES = 15;
 const PAGE_DELAY_MS = 4000;
 const PAGE_DELAY_JITTER = 3000;
 const AREA_DELAY_MS = 6000;
+const DETAIL_DELAY_MS = 2500;
+const DETAIL_DELAY_JITTER = 1500;
 const MIN_DELETE_RATIO = 0.3;
 
 const DEBUG = process.env.CRAWL_DEBUG === 'true';
@@ -107,6 +109,43 @@ interface ScrapedResult {
   totalStr: string;
 }
 
+interface DetailInfo {
+  address: string | null;
+  transport: string | null;
+  yearBuilt: string | null;
+  floor: string | null;
+}
+
+const scrapeDetailPage = async (page: Page, url: string): Promise<DetailInfo> => {
+  try {
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    if (page.url().includes('/search/condition-list/')) return { address: null, transport: null, yearBuilt: null, floor: null };
+
+    return page.evaluate(() => {
+      let address: string | null = null;
+      let transport: string | null = null;
+      let yearBuilt: string | null = null;
+      let floor: string | null = null;
+
+      document.querySelectorAll('table tr').forEach((row) => {
+        const ths = row.querySelectorAll('th');
+        ths.forEach((th) => {
+          const text = th.textContent?.trim() ?? '';
+          const td = th.nextElementSibling?.textContent?.trim() ?? null;
+          if (!td) return;
+          if (text.includes('所在地') && !address) address = td;
+          if (text.includes('交通') && !transport) transport = td;
+          if (text.includes('築年月') && !yearBuilt) yearBuilt = td;
+          if ((text.includes('所在階') || text === '階数') && !floor) floor = td;
+        });
+      });
+      return { address, transport, yearBuilt, floor };
+    });
+  } catch {
+    return { address: null, transport: null, yearBuilt: null, floor: null };
+  }
+};
+
 const isBlocked = async (page: Page): Promise<boolean> => {
   const title = await page.evaluate(() => document.title);
   return title.includes('Verification') || title.includes('403') || title.includes('Error');
@@ -157,31 +196,32 @@ const scrapePage = async (page: Page, url: string, retryOnBlock = true): Promise
       // Image (lazy-loaded: src is placeholder gif, real URL is data-original)
       const img = card.querySelector('img.prg-lazy-display');
       const imageUrl = img?.getAttribute('data-original') ?? null;
-      const name = img?.getAttribute('alt')?.trim() ?? null;
+      // alt에 "建物名 ワンルームの間取り" 형식으로 간취가 붙어있어 제거
+      const rawName = img?.getAttribute('alt')?.trim() ?? null;
+      const name = rawName ? rawName.replace(/\s+[^\s]+の間取り$/, '').trim() : null;
 
-      // Address, layout, area sizes, year from verticalTable th→td
-      let address: string | null = null;
+      // 층수 (3階 표시)
+      const floorEl = card.querySelector('span.u-text-sm.u-font-bold.u-mr-1');
+      const floor = floorEl?.textContent?.trim() ?? null;
+
+      // layout, buildingArea from verticalTable (address/yearBuilt는 상세 페이지에서)
       let layout: string | null = null;
       let buildingArea: string | null = null;
       let landArea: string | null = null;
-      let yearBuilt: string | null = null;
 
-      // Each verticalTable row may have multiple th/td pairs side by side
       for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
         const cells = Array.from(row.children);
         for (let i = 0; i < cells.length - 1; i++) {
           if (cells[i].tagName !== 'TH') continue;
           const th = cells[i].textContent?.trim() ?? '';
           const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
-          if (th.includes('所在地')) address = td;
-          else if (th.includes('間取り')) layout = td;
+          if (th.includes('間取り')) layout = td;
           else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
           else if (th.includes('土地面積')) landArea = td;
-          else if (th.includes('築年月') || th.includes('築年')) yearBuilt = td;
         }
       }
 
-      return { name, price, address, transport, layout, buildingArea, landArea, yearBuilt, url: cardUrl, imageUrl };
+      return { name, price, address: null, transport: null, layout, buildingArea, landArea, yearBuilt: null, floor, url: cardUrl, imageUrl };
     });
 
     // Total count (span.totalNum confirmed by test)
@@ -260,23 +300,24 @@ const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<
             const transport = card.querySelector('td.traffic')?.textContent?.trim() ?? null;
             const img = card.querySelector('img.prg-lazy-display');
             const imageUrl = img?.getAttribute('data-original') ?? null;
-            const name = img?.getAttribute('alt')?.trim() ?? null;
-            let address: string | null = null, layout: string | null = null;
-            let buildingArea: string | null = null, landArea: string | null = null, yearBuilt: string | null = null;
+            const rawName = img?.getAttribute('alt')?.trim() ?? null;
+            const name = rawName ? rawName.replace(/\s+[^\s]+の間取り$/, '').trim() : null;
+            const floorEl = card.querySelector('span.u-text-sm.u-font-bold.u-mr-1');
+            const floor = floorEl?.textContent?.trim() ?? null;
+            let layout: string | null = null;
+            let buildingArea: string | null = null, landArea: string | null = null;
             for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
               const cells = Array.from(row.children);
               for (let i = 0; i < cells.length - 1; i++) {
                 if (cells[i].tagName !== 'TH') continue;
                 const th = cells[i].textContent?.trim() ?? '';
                 const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
-                if (th.includes('所在地')) address = td;
-                else if (th.includes('間取り')) layout = td;
+                if (th.includes('間取り')) layout = td;
                 else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
                 else if (th.includes('土地面積')) landArea = td;
-                else if (th.includes('築年月') || th.includes('築年')) yearBuilt = td;
               }
             }
-            return { name, price, address, transport, layout, buildingArea, landArea, yearBuilt, url: cardUrl, imageUrl };
+            return { name, price, address: null, transport: null, layout, buildingArea, landArea, yearBuilt: null, floor, url: cardUrl, imageUrl };
           });
           return { rawItems, totalStr: document.querySelector('.totalNum')?.textContent?.trim() ?? '0' };
         }, BASE_URL) as ScrapedResult;
@@ -292,6 +333,37 @@ const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<
     }
   } catch (err) {
     console.error(`[${area.name}/${urlType.type}] 크롤링 오류:`, (err as Error).message);
+  }
+
+  // 신규 아이템만 상세 페이지 방문 (기존 DB에 address 있으면 스킵)
+  if (allItems.length > 0) {
+    const tbl = getTableName(area.slug);
+    const allUrls = allItems.map((i) => i.homes_url).filter((u): u is string => u !== null);
+    const { rows: existingRows } = await pool.query<{ homes_url: string }>(
+      `SELECT homes_url FROM ${tbl} WHERE homes_url = ANY($1) AND address IS NOT NULL`,
+      [allUrls]
+    ).catch(() => ({ rows: [] as { homes_url: string }[] }));
+    const existingSet = new Set(existingRows.map((r) => r.homes_url));
+
+    const newItems = allItems.filter((i) => i.homes_url && !existingSet.has(i.homes_url));
+    console.log(`  [${area.name}/${urlType.type}] 상세 페이지: ${newItems.length}건 신규 / ${allItems.length - newItems.length}건 기존 스킵`);
+
+    for (let i = 0; i < newItems.length; i++) {
+      const item = newItems[i];
+      if (!item.homes_url) continue;
+      await sleep(DETAIL_DELAY_MS + Math.random() * DETAIL_DELAY_JITTER);
+      const detail = await scrapeDetailPage(page, item.homes_url);
+      if (detail.address)   item.address = detail.address;
+      if (detail.transport) {
+        item.transport = detail.transport;
+        const { lineName, station, walkMin } = parseTransport(detail.transport);
+        item.line_name = lineName;
+        item.station   = station;
+        item.walk_min  = walkMin;
+      }
+      if (detail.yearBuilt) item.year_built = parseYear(detail.yearBuilt);
+      if ((i + 1) % 10 === 0) console.log(`    상세 ${i + 1}/${newItems.length}건 완료`);
+    }
   }
 
   return allItems;
@@ -327,10 +399,16 @@ const saveProperties = async (items: PropertyItem[], area: Area, crawledTypes: s
            layout, year_built, line_name, area, station, property_type, homes_url, image_url)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
          ON CONFLICT (homes_url) DO UPDATE SET
-           price=$2, price_num=$3, walk_min=$5, address=$6, transport=$7,
+           price=$2, price_num=$3, walk_min=$5,
+           address    = COALESCE($6,  EXCLUDED.address),
+           transport  = COALESCE($7,  EXCLUDED.transport),
            land_area=$8, land_area_num=$9, building_area=$10, building_area_num=$11,
-           layout=$12, year_built=$13, line_name=$14, station=$16, property_type=$17,
-           image_url=$19, updated_at=NOW()
+           layout=$12,
+           year_built = COALESCE($13, EXCLUDED.year_built),
+           line_name  = COALESCE($14, EXCLUDED.line_name),
+           station    = COALESCE($16, EXCLUDED.station),
+           walk_min   = COALESCE($5,  EXCLUDED.walk_min),
+           property_type=$17, image_url=$19, updated_at=NOW()
          RETURNING (xmax = 0) AS inserted`,
         [item.name, item.price, item.price_num, priceInitial, item.walk_min,
          item.address, item.transport, item.land_area, item.land_area_num,

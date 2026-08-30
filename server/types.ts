@@ -33,6 +33,7 @@ export interface RawBrowserItem {
   buildingArea: string | null;
   landArea: string | null;
   yearBuilt: string | null;
+  floor: string | null;
   url: string | null;
   imageUrl: string | null;
 }
