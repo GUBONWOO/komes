@@ -33,7 +33,10 @@ services:
     build: ./client
     restart: unless-stopped
     ports:
-      - "8084:80"
+      - "10531:443"
+      - "84:80"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - server
 
