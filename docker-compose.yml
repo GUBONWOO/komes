@@ -23,6 +23,9 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       NODE_ENV: production
+      DISPLAY: ":99"
+      CHROME_PATH: /usr/bin/google-chrome-stable
+    shm_size: 256m
     depends_on:
       - postgres
 
@@ -30,7 +33,7 @@ services:
     build: ./client
     restart: unless-stopped
     ports:
-      - "8081:80"
+      - "84:80"
     depends_on:
       - server
 

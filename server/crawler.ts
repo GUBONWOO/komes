@@ -1,10 +1,5 @@
-import puppeteerExtra from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { connect } from 'puppeteer-real-browser';
 import type { Browser, Page } from 'puppeteer';
-import axios from 'axios';
-import * as cheerio from 'cheerio';
-
-puppeteerExtra.use(StealthPlugin());
 import { pool } from './db';
 import { LINES, getTableName } from './lines';
 import type { Area, UrlType, CrawlGroup, RawBrowserItem, PropertyItem, SaveResult, CrawlSummary } from './types';
@@ -12,9 +7,9 @@ import type { Area, UrlType, CrawlGroup, RawBrowserItem, PropertyItem, SaveResul
 const BASE_URL = 'https://www.homes.co.jp';
 const ITEMS_PER_PAGE = 30;
 const MAX_PAGES = 15;
-const PAGE_DELAY_MS = 2000;
-const PAGE_DELAY_JITTER = 1500;
-const AREA_DELAY_MS = 4000;
+const PAGE_DELAY_MS = 4000;
+const PAGE_DELAY_JITTER = 3000;
+const AREA_DELAY_MS = 6000;
 const MIN_DELETE_RATIO = 0.3;
 
 const DEBUG = process.env.CRAWL_DEBUG === 'true';
@@ -112,100 +107,38 @@ interface ScrapedResult {
   totalStr: string;
 }
 
-// cheerio로 HTML 파싱 (Puppeteer page.evaluate와 동일한 로직)
-const parseHtml = (html: string): ScrapedResult => {
-  const $ = cheerio.load(html);
-  const rawItems: RawBrowserItem[] = [];
-
-  $('table.unitSummary').each((_, card) => {
-    const $c = $(card);
-    const relUrl = $c.find('tr[data-href]').attr('data-href') ?? null;
-    const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : BASE_URL + relUrl) : null;
-    const price     = $c.find('.priceLabel').first().text().trim() || null;
-    const transport = $c.find('td.traffic').first().text().trim() || null;
-    const $img      = $c.find('img.prg-lazy-display').first();
-    const imageUrl  = $img.attr('data-original') ?? null;
-    const name      = $img.attr('alt')?.trim() ?? null;
-
-    let address: string | null = null, layout: string | null = null;
-    let buildingArea: string | null = null, landArea: string | null = null, yearBuilt: string | null = null;
-
-    $c.find('table.verticalTable tr').each((_, row) => {
-      const cells = $(row).children().toArray();
-      for (let i = 0; i < cells.length - 1; i++) {
-        if (!$(cells[i]).is('th')) continue;
-        const th = $(cells[i]).text().trim();
-        const td = $(cells[i + 1]).is('td') ? $(cells[i + 1]).text().trim() || null : null;
-        if (th.includes('所在地')) address = td;
-        else if (th.includes('間取り')) layout = td;
-        else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
-        else if (th.includes('土地面積')) landArea = td;
-        else if (th.includes('築年月') || th.includes('築年')) yearBuilt = td;
-      }
-    });
-
-    rawItems.push({ name, price, address, transport, layout, buildingArea, landArea, yearBuilt, url: cardUrl, imageUrl });
-  });
-
-  const totalStr = $('.totalNum').first().text().trim() || '0';
-  return { rawItems, totalStr };
-};
-
-const AXIOS_HEADERS = {
-  'User-Agent':      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'ja-JP,ja;q=0.9',
-  'Sec-Fetch-Dest':  'document',
-  'Sec-Fetch-Mode':  'navigate',
-  'Sec-Fetch-Site':  'same-origin',
-  'Referer':         'https://www.homes.co.jp/',
-};
-
-// axios로 페이지 가져오기 (Puppeteer에서 추출한 쿠키 사용)
-const scrapePageAxios = async (url: string, cookieHeader: string): Promise<ScrapedResult> => {
-  try {
-    const r = await axios.get<string>(url, {
-      headers: { ...AXIOS_HEADERS, Cookie: cookieHeader },
-      timeout: 20000,
-    });
-    if (!r.data.includes('unitSummary')) return { rawItems: [], totalStr: '0' };
-    return parseHtml(r.data);
-  } catch {
-    return { rawItems: [], totalStr: '0' };
-  }
-};
-
 const isBlocked = async (page: Page): Promise<boolean> => {
   const title = await page.evaluate(() => document.title);
   return title.includes('Verification') || title.includes('403') || title.includes('Error');
 };
 
 const scrapePage = async (page: Page, url: string, retryOnBlock = true): Promise<ScrapedResult> => {
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-  if (await isBlocked(page)) {
-    if (retryOnBlock) {
-      console.warn(`  [bot detection] ${url} — waiting 20s then retry`);
-      await sleep(20000);
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
-      if (await isBlocked(page)) {
-        console.warn(`  [bot detection] retry failed, skipping page`);
+  let hasCards = false;
+  try {
+    await page.waitForSelector(CARD_SEL, { timeout: 15000 });
+    hasCards = true;
+  } catch {
+    // 카드 없음 → blocked 여부 확인
+  }
+
+  if (!hasCards) {
+    if (retryOnBlock && await isBlocked(page)) {
+      console.warn(`  [bot detection] ${url} — 30s 후 재시도`);
+      await sleep(30000);
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+      try {
+        await page.waitForSelector(CARD_SEL, { timeout: 15000 });
+        hasCards = true;
+      } catch {
+        console.warn(`  [bot detection] 재시도 실패, 스킵`);
         return { rawItems: [], totalStr: '0' };
       }
     } else {
       return { rawItems: [], totalStr: '0' };
     }
   }
-
-  let hasCards = false;
-  try {
-    await page.waitForSelector(CARD_SEL, { timeout: 12000 });
-    hasCards = true;
-  } catch {
-    // no listings on this page
-  }
-
-  if (!hasCards) return { rawItems: [], totalStr: '0' };
 
   return page.evaluate((baseUrl: string) => {
     const cards = Array.from(document.querySelectorAll('table.unitSummary'));
@@ -258,15 +191,11 @@ const scrapePage = async (page: Page, url: string, retryOnBlock = true): Promise
   }, BASE_URL) as Promise<ScrapedResult>;
 };
 
-const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Promise<PropertyItem[]> => {
+const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<PropertyItem[]> => {
   const buildUrl = (p: number): string => {
     const base = `${BASE_URL}/${urlType.path}/${area.prefecture}/${area.slug}/list/`;
     return p > 1 ? `${base}?page=${p}` : base;
   };
-
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 800 });
-  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   const allItems: PropertyItem[] = [];
   try {
@@ -283,23 +212,86 @@ const crawlAreaType = async (browser: Browser, area: Area, urlType: UrlType): Pr
       console.log('[DEBUG] 첫 카드:', JSON.stringify(firstRaw[0], null, 2));
     }
 
-    // Puppeteer로 얻은 WAF 쿠키 → 나머지 페이지는 axios로 처리
-    const cookies = await page.cookies();
-    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-
     for (let p = 2; p <= totalPages; p++) {
       await sleep(PAGE_DELAY_MS + Math.random() * PAGE_DELAY_JITTER);
       try {
-        const { rawItems } = await scrapePageAxios(buildUrl(p), cookieHeader);
-        const items = buildItems(rawItems, urlType, area.name);
+        // 자연스러운 링크 클릭으로 페이지 이동 (goto보다 WAF 회피 유리)
+        const nextUrl = buildUrl(p);
+        const linkHandle = await page.$(`a[href*="?page=${p}"], a[href*="page=${p}"]`);
+        if (linkHandle) {
+          await linkHandle.evaluate((el) => el.scrollIntoView());
+          await sleep(500);
+          await Promise.all([
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+            linkHandle.click(),
+          ]);
+        } else {
+          // 링크 없으면 soft navigation
+          await Promise.all([
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+            page.evaluate((u: string) => { window.location.href = u; }, nextUrl),
+          ]);
+        }
+
+        // Cloudflare Turnstile 리다이렉트 즉시 감지
+        const currentUrl = page.url();
+        if (currentUrl.includes('/search/condition-list/') || await isBlocked(page)) {
+          console.log(`  [${area.name}/${urlType.type}] ${p}p CF챌린지 감지, 중단`);
+          break;
+        }
+
+        let hasCards = false;
+        try {
+          await page.waitForSelector(CARD_SEL, { timeout: 12000 });
+          hasCards = true;
+        } catch { /* no cards */ }
+
+        if (!hasCards) {
+          console.log(`  [${area.name}/${urlType.type}] ${p}/${totalPages}p → 0건`);
+          break;
+        }
+
+        const result = await page.evaluate((baseUrl: string) => {
+          const cards = Array.from(document.querySelectorAll('table.unitSummary'));
+          const rawItems = cards.map((card) => {
+            const relUrl = card.querySelector('tr[data-href]')?.getAttribute('data-href') ?? null;
+            const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : baseUrl + relUrl) : null;
+            const price = card.querySelector('.priceLabel')?.textContent?.trim() ?? null;
+            const transport = card.querySelector('td.traffic')?.textContent?.trim() ?? null;
+            const img = card.querySelector('img.prg-lazy-display');
+            const imageUrl = img?.getAttribute('data-original') ?? null;
+            const name = img?.getAttribute('alt')?.trim() ?? null;
+            let address: string | null = null, layout: string | null = null;
+            let buildingArea: string | null = null, landArea: string | null = null, yearBuilt: string | null = null;
+            for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
+              const cells = Array.from(row.children);
+              for (let i = 0; i < cells.length - 1; i++) {
+                if (cells[i].tagName !== 'TH') continue;
+                const th = cells[i].textContent?.trim() ?? '';
+                const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
+                if (th.includes('所在地')) address = td;
+                else if (th.includes('間取り')) layout = td;
+                else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
+                else if (th.includes('土地面積')) landArea = td;
+                else if (th.includes('築年月') || th.includes('築年')) yearBuilt = td;
+              }
+            }
+            return { name, price, address, transport, layout, buildingArea, landArea, yearBuilt, url: cardUrl, imageUrl };
+          });
+          return { rawItems, totalStr: document.querySelector('.totalNum')?.textContent?.trim() ?? '0' };
+        }, BASE_URL) as ScrapedResult;
+
+        const items = buildItems(result.rawItems, urlType, area.name);
         allItems.push(...items);
         console.log(`  [${area.name}/${urlType.type}] ${p}/${totalPages}p → ${items.length}건`);
+        if (items.length === 0) break;
       } catch (err) {
         console.warn(`  [${area.name}/${urlType.type}] ${p}p 스킵:`, (err as Error).message);
+        break;
       }
     }
-  } finally {
-    await page.close();
+  } catch (err) {
+    console.error(`[${area.name}/${urlType.type}] 크롤링 오류:`, (err as Error).message);
   }
 
   return allItems;
@@ -410,10 +402,10 @@ export const runCrawler = async (areaNames: string | string[] | null = null, tar
     ? URL_TYPES.filter((t) => targetTypes.includes(t.type))
     : URL_TYPES;
 
-  const browser = await puppeteerExtra.launch({
-    headless: true,
+  const { browser, page: initialPage } = await connect({
+    headless: false,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  }) as Browser;
+  }) as unknown as { browser: Browser; page: Page };
 
   const summary: CrawlSummary[] = [];
   try {
@@ -423,7 +415,7 @@ export const runCrawler = async (areaNames: string | string[] | null = null, tar
         let items: PropertyItem[] = [];
         try {
           console.log(`\n[${area.name}/${urlType.label}] 크롤링 시작`);
-          items = await crawlAreaType(browser, area, urlType);
+          items = await crawlAreaType(initialPage, area, urlType);
           console.log(`[${area.name}/${urlType.label}] 합계 ${items.length}건`);
         } catch (err) {
           console.error(`[${area.name}/${urlType.type}] 크롤링 오류:`, (err as Error).message);
