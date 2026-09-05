@@ -193,7 +193,7 @@ export default function App() {
           </div>
           <button className='fav-header-btn' onClick={() => setShowFavorites(true)}>
             <IconHeartFilled />
-            관심종목
+            お気に入り
             {watchlist.length > 0 && <span className='fav-header-count'>{watchlist.length}</span>}
           </button>
         </div>
@@ -203,12 +203,12 @@ export default function App() {
         <div className='fav-overlay' onClick={() => setShowFavorites(false)}>
           <div className='fav-panel' onClick={(e) => e.stopPropagation()}>
             <div className='fav-panel-header'>
-              <span>관심종목 ({watchlist.length})</span>
+              <span>お気に入り ({watchlist.length})</span>
               <button className='history-close' onClick={() => setShowFavorites(false)}>×</button>
             </div>
             <div className='fav-panel-body'>
               {watchlist.length === 0 ? (
-                <p className='history-empty'>관심종목이 없습니다</p>
+                <p className='history-empty'>お気に入りはありません</p>
               ) : (
                 <div className='property-list'>
                   {watchlist.map((p) => (
