@@ -89,7 +89,7 @@ Docker Compose
 └── client     Nginx（Reactビルド配信、HTTPS終端、APIプロキシ）
 ```
 
-- Let's Encryptで HTTPS対応
+- Let's EncryptでHTTPS対応
 - 内部ネットワークIPはJWTなしで管理者自動認証
 - クローラーはサーバープロセス内の無限ループで8グループを順番に実行 — 別途スケジューラー不要
 - 現在、首都圏11,000件以上の物件を運用中
