@@ -146,5 +146,17 @@ export const initDB = async (): Promise<void> => {
     );
   `);
 
+  // 기존 잘못된 line_name(전체 transport 문자열 저장됨) 수정
+  for (const line of LINES) {
+    const tbl = getTableName(line.slug);
+    await pool.query(`
+      UPDATE ${tbl}
+      SET line_name = (regexp_match(transport, '^(\\S+)'))[1]
+      WHERE transport IS NOT NULL
+        AND line_name IS NOT NULL
+        AND line_name LIKE '% %'
+    `).catch(() => {});
+  }
+
   console.log('[DB] 초기화 완료 — 지역 테이블:', LINES.length, '개');
 };

@@ -1,31 +1,32 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap');
 
-/* ─── Design Tokens ──────────────────────────────────── */
+/* ─── Design Tokens (HOMES カラーパレット) ──────────── */
 :root {
-  --primary:       #0D9488;
-  --primary-dark:  #0F766E;
-  --primary-light: #CCFBF1;
-  --primary-dim:   rgba(13,148,136,0.12);
+  /* HOMES ブランドカラー: オレンジ系 */
+  --primary:       #F15A22;
+  --primary-dark:  #D44D1A;
+  --primary-light: #FEE8DE;
+  --primary-dim:   rgba(241, 90, 34, 0.10);
 
-  --bg:        #F1F5F9;
+  --bg:        #F5F5F5;
   --surface:   #FFFFFF;
-  --surface-2: #F8FAFC;
-  --border:    #E2E8F0;
-  --border-2:  #CBD5E1;
+  --surface-2: #FAFAFA;
+  --border:    #E0E0E0;
+  --border-2:  #CCCCCC;
 
-  --text-1:  #0F172A;
-  --text-2:  #475569;
-  --text-3:  #94A3B8;
+  --text-1:  #1A1A1A;
+  --text-2:  #555555;
+  --text-3:  #999999;
 
-  --shadow-sm:    0 1px 3px rgba(15,23,42,0.06);
-  --shadow-md:    0 4px 16px rgba(15,23,42,0.08);
-  --shadow-lg:    0 8px 32px rgba(15,23,42,0.12);
-  --shadow-hover: 0 12px 40px rgba(13,148,136,0.18);
+  --shadow-sm:    0 1px 3px rgba(0,0,0,0.07);
+  --shadow-md:    0 4px 16px rgba(0,0,0,0.09);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,0.12);
+  --shadow-hover: 0 12px 40px rgba(241,90,34,0.18);
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
 
   --ease:        cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
@@ -33,23 +34,23 @@
 }
 
 [data-theme="dark"] {
-  --bg:        #0F172A;
-  --surface:   #1E293B;
-  --surface-2: #162032;
-  --border:    #334155;
-  --border-2:  #475569;
+  --bg:        #1A1A1A;
+  --surface:   #2A2A2A;
+  --surface-2: #222222;
+  --border:    #3A3A3A;
+  --border-2:  #4A4A4A;
 
-  --text-1: #F1F5F9;
-  --text-2: #94A3B8;
-  --text-3: #64748B;
+  --text-1: #F5F5F5;
+  --text-2: #AAAAAA;
+  --text-3: #666666;
 
-  --primary-light: rgba(13,148,136,0.2);
-  --primary-dim:   rgba(13,148,136,0.18);
+  --primary-light: rgba(241, 90, 34, 0.18);
+  --primary-dim:   rgba(241, 90, 34, 0.14);
 
-  --shadow-sm:    0 1px 3px rgba(0,0,0,0.3);
-  --shadow-md:    0 4px 16px rgba(0,0,0,0.4);
-  --shadow-lg:    0 8px 32px rgba(0,0,0,0.5);
-  --shadow-hover: 0 12px 40px rgba(13,148,136,0.28);
+  --shadow-sm:    0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:    0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,0.6);
+  --shadow-hover: 0 12px 40px rgba(241,90,34,0.25);
 }
 
 /* ─── Reset ─────────────────────────────────────────── */
@@ -566,6 +567,10 @@ body {
 }
 .detail-value { color: var(--text-2); }
 .detail-value.transport { color: var(--primary); font-weight: 500; }
+.detail-row-clickable { cursor: pointer; user-select: none; }
+.detail-row-clickable:hover .detail-value { opacity: 0.8; }
+.transport-more { font-size: 11px; color: var(--text-3); font-weight: 400; }
+.detail-row-extra { padding-left: 2px; opacity: 0.85; }
 
 /* 스펙 행 */
 .detail-specs {
@@ -737,7 +742,7 @@ body {
 .card-cta:hover {
   background: var(--primary-dark);
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(13,148,136,0.35);
+  box-shadow: 0 4px 14px rgba(241,90,34,0.35);
 }
 .cta-arrow { font-size: 12px; }
 

@@ -3,6 +3,39 @@ import { IconPin, IconTrain, IconHome, IconHeart, IconHeartFilled } from './icon
 import { getPriceHistory } from './api';
 import type { Property, PriceHistoryEntry } from './types';
 
+interface TransportEntry {
+  lineName: string | null;
+  station: string | null;
+  walkMin: number | null;
+}
+
+// HOMES 交通テキスト: "路線名 駅名駅 徒歩N分路線名 駅名駅 徒歩N分..." (改行なし連結)
+function parseTransportLines(transport: string | null): TransportEntry[] {
+  if (!transport) return [];
+  return transport
+    .split('分')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const walkMatch = chunk.match(/徒歩\s*(\d+)$/);
+      const walkMin = walkMatch ? parseInt(walkMatch[1], 10) : null;
+      const stationMatch = chunk.match(/([^\s/「」、。]+)駅/);
+      const station = stationMatch ? stationMatch[1] + '駅' : null;
+      const stationPos = stationMatch ? chunk.indexOf(stationMatch[0]) : -1;
+      const lineName = stationPos > 0 ? chunk.slice(0, stationPos).trim() || null : null;
+      return { lineName, station, walkMin };
+    })
+    .filter((e) => e.lineName || e.station);
+}
+
+function formatEntry(e: TransportEntry): string {
+  const parts: string[] = [];
+  if (e.lineName) parts.push(e.lineName);
+  if (e.station)  parts.push(e.station);
+  if (e.walkMin != null) parts.push(`徒歩${e.walkMin}分`);
+  return parts.join(' ');
+}
+
 interface PriceHistoryModalProps {
   homesUrl: string;
   onClose: () => void;
@@ -72,9 +105,13 @@ interface PropertyCardProps {
 
 export default function PropertyCard({ property: p, isFavorite, onToggleFavorite }: PropertyCardProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [showAllLines, setShowAllLines] = useState(false);
 
   const hasChange = (p.price_change_count ?? 0) > 0;
   const isSold = p.is_listed === false;
+  const transportLines = parseTransportLines(p.transport);
+  const primaryLine = transportLines[0] ?? null;
+  const extraLines = transportLines.slice(1);
 
   return (
     <>
@@ -98,7 +135,7 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
             <span className="image-placeholder-text">外観写真なし</span>
           </div>
           <div className="card-badges">
-            <span className="badge badge-line">{p.line_name}</span>
+            <span className="badge badge-line">{primaryLine?.lineName ?? p.line_name}</span>
           </div>
         </div>
 
@@ -127,11 +164,26 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
               <span className="detail-label">所在地</span>
               <span className="detail-value">{p.address ?? '-'}</span>
             </div>
-            <div className="detail-row">
+            <div
+              className={`detail-row${extraLines.length > 0 ? ' detail-row-clickable' : ''}`}
+              onClick={() => extraLines.length > 0 && setShowAllLines((v) => !v)}
+            >
               <span className="detail-icon"><IconTrain /></span>
               <span className="detail-label">交通</span>
-              <span className="detail-value transport">{p.transport ?? '-'}</span>
+              <span className="detail-value transport">
+                {primaryLine ? formatEntry(primaryLine) : (p.transport ?? '-')}
+                {extraLines.length > 0 && (
+                  <span className="transport-more"> 他{extraLines.length}路線 {showAllLines ? '▲' : '▼'}</span>
+                )}
+              </span>
             </div>
+            {showAllLines && extraLines.map((e, i) => (
+              <div key={i} className="detail-row detail-row-extra">
+                <span className="detail-icon"><IconTrain /></span>
+                <span className="detail-label" />
+                <span className="detail-value transport">{formatEntry(e)}</span>
+              </div>
+            ))}
             <div className="detail-specs">
               <div className="spec-item">
                 <span className="spec-label">土地面積</span>
@@ -146,6 +198,11 @@ export default function PropertyCard({ property: p, isFavorite, onToggleFavorite
               <div className="spec-item">
                 <span className="spec-label">築年月</span>
                 <span className="spec-value">{p.year_built ? `${p.year_built}年` : '-'}</span>
+              </div>
+              <div className="spec-sep" />
+              <div className="spec-item">
+                <span className="spec-label">駅徒歩</span>
+                <span className="spec-value">{p.walk_min != null ? `${p.walk_min}分` : '-'}</span>
               </div>
             </div>
           </div>

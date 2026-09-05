@@ -128,6 +128,18 @@ export default function App() {
 
   useEffect(() => { fetchProperties(); }, [fetchProperties]);
 
+  const fetchPropertiesRef = useRef(fetchProperties);
+  useEffect(() => { fetchPropertiesRef.current = fetchProperties; }, [fetchProperties]);
+
+  useEffect(() => {
+    const THREE_HOURS = 3 * 60 * 60 * 1000;
+    const id = setInterval(() => {
+      fetchPropertiesRef.current();
+      getStats().then((r) => setStats(r.data)).catch(() => {});
+    }, THREE_HOURS);
+    return () => clearInterval(id);
+  }, []);
+
   const handlePageChange = (p: number) => {
     isPageChange.current = true;
     setPage(p);

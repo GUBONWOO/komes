@@ -1,6 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import cron from 'node-cron';
 import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
@@ -79,7 +78,7 @@ app.use('/api/watchlist',  watchlistRouter);
 app.get('/api/stats', async (_req, res: Response) => {
   try {
     const { rows } = await pool.query<{ line_name: string; count: string }>(
-      `SELECT line_name, COUNT(*) AS count FROM properties GROUP BY line_name ORDER BY line_name`
+      `SELECT line_name, COUNT(*) AS count FROM properties WHERE line_name IS NOT NULL GROUP BY line_name ORDER BY line_name`
     );
     const { rows: [{ count }] } = await pool.query<{ count: string }>('SELECT COUNT(*) FROM properties');
     res.json({ total: parseInt(count, 10), byLine: rows });
@@ -106,7 +105,7 @@ app.get('/api/lines', (_req, res: Response) => {
 });
 
 app.get('/api/crawl-groups', (_req, res: Response) => {
-  res.json(CRAWL_GROUPS.map((g) => ({ id: g.id, name: g.name, cron: g.cron, areas: g.areas })));
+  res.json(CRAWL_GROUPS.map((g) => ({ id: g.id, name: g.name, areas: g.areas })));
 });
 
 app.get('/api/stations', async (req: Request, res: Response) => {
@@ -130,15 +129,21 @@ const PORT = process.env.PORT ?? 5000;
   await initDB();
   app.listen(PORT, () => console.log(`서버 실행 중: http://localhost:${PORT}`));
 
-  CRAWL_GROUPS.forEach((group) => {
-    cron.schedule(group.cron, () => {
+  const runRotation = async () => {
+    let index = 0;
+    while (true) {
+      const group = CRAWL_GROUPS[index];
       console.log(`[배치] 그룹 ${group.id}(${group.name}) 시작: ${new Date().toISOString()}`);
-      runCrawler(group.areas)
-        .then((s) => console.log(`[배치] 그룹 ${group.id}(${group.name}) 완료`, s))
-        .catch((err: Error) => console.error(`[배치] 그룹 ${group.id}(${group.name}) 오류`, err.message));
-    });
-  });
+      try {
+        const s = await runCrawler(group.areas);
+        console.log(`[배치] 그룹 ${group.id}(${group.name}) 완료`, s);
+      } catch (err) {
+        console.error(`[배치] 그룹 ${group.id}(${group.name}) 오류`, (err as Error).message);
+      }
+      index = (index + 1) % CRAWL_GROUPS.length;
+    }
+  };
 
-  console.log('[배치] 스케줄 등록 완료:');
-  CRAWL_GROUPS.forEach((g) => console.log(`  ${g.cron}  ${g.id}(${g.name}): ${g.areas.join(', ')}`));
+  runRotation();
+  console.log('[배치] 그룹 로테이션 시작 (완료 즉시 다음 그룹)');
 })();

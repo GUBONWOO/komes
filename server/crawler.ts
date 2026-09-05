@@ -27,14 +27,14 @@ export const URL_TYPES: UrlType[] = [
 ];
 
 export const CRAWL_GROUPS: CrawlGroup[] = [
-  { id: 'g01', name: '都心',     cron: '0 0 * * *',  areas: ['千代田区', '中央区', '港区'] },
-  { id: 'g02', name: '西中心部', cron: '0 3 * * *',  areas: ['新宿区', '渋谷区', '文京区'] },
-  { id: 'g03', name: '城南',     cron: '0 6 * * *',  areas: ['品川区', '目黒区', '大田区'] },
-  { id: 'g04', name: '城西',     cron: '0 9 * * *',  areas: ['世田谷区', '中野区', '杉並区', '豊島区'] },
-  { id: 'g05', name: '墨東',     cron: '0 12 * * *', areas: ['台東区', '墨田区', '江東区'] },
-  { id: 'g06', name: '城北',     cron: '0 15 * * *', areas: ['北区', '荒川区', '板橋区', '練馬区'] },
-  { id: 'g07', name: '城東',     cron: '0 17 * * *', areas: ['足立区', '葛飾区', '江戸川区'] },
-  { id: 'g08', name: '周辺都市', cron: '0 20 * * *', areas: ['横浜市', '川崎市', 'さいたま市', '川口市', '千葉市', '船橋市', '市川市'] },
+  { id: 'g01', name: '都心',     areas: ['千代田区', '中央区', '港区'] },
+  { id: 'g02', name: '西中心部', areas: ['新宿区', '渋谷区', '文京区'] },
+  { id: 'g03', name: '城南',     areas: ['品川区', '目黒区', '大田区'] },
+  { id: 'g04', name: '城西',     areas: ['世田谷区', '中野区', '杉並区', '豊島区'] },
+  { id: 'g05', name: '墨東',     areas: ['台東区', '墨田区', '江東区'] },
+  { id: 'g06', name: '城北',     areas: ['北区', '荒川区', '板橋区', '練馬区'] },
+  { id: 'g07', name: '城東',     areas: ['足立区', '葛飾区', '江戸川区'] },
+  { id: 'g08', name: '周辺都市', areas: ['横浜市', '川崎市', 'さいたま市', '川口市', '千葉市', '船橋市', '市川市'] },
 ];
 
 const TARGET_AREAS: Area[] = LINES;
@@ -52,15 +52,36 @@ const parsePrice = (text: string | null): number | null => {
   return results.length ? Math.min(...results) : null;
 };
 
+interface TransportEntry {
+  lineName: string | null;
+  station: string | null;
+  walkMin: number | null;
+}
+
+// HOMES 交通テキストは改行なしで連結: "路線名 駅名駅 徒歩N分路線名 駅名駅 徒歩N分..."
+const parseAllTransportLines = (text: string): TransportEntry[] => {
+  return text
+    .split('分')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const walkMatch = chunk.match(/徒歩\s*(\d+)$/);
+      const walkMin = walkMatch ? parseInt(walkMatch[1], 10) : null;
+      const stationMatch = chunk.match(/([^\s/「」、。]+)駅/);
+      const station = stationMatch ? stationMatch[1] : null;
+      const stationPos = stationMatch ? chunk.indexOf(stationMatch[0]) : -1;
+      const lineName = stationPos > 0 ? chunk.slice(0, stationPos).trim() || null : null;
+      return { lineName, station, walkMin };
+    })
+    .filter((e) => e.lineName || e.station);
+};
+
 const parseTransport = (text: string | null): { lineName: string | null; station: string | null; walkMin: number | null } => {
   if (!text) return { lineName: null, station: null, walkMin: null };
-  const walkMatch = text.match(/徒歩\s*(\d+)\s*分/);
-  const walkMin = walkMatch ? parseInt(walkMatch[1], 10) : null;
-  const stationMatch = text.match(/([^\s\n/「」]+)駅/);
-  const station = stationMatch ? stationMatch[1] : null;
-  const parts = text.split(/[\n\r]+/).map((s) => s.trim()).filter(Boolean);
-  const lineName = parts[0] ?? null;
-  return { lineName, station, walkMin };
+  const entries = parseAllTransportLines(text);
+  if (entries.length === 0) return { lineName: null, station: null, walkMin: null };
+  const first = entries[0];
+  return { lineName: first.lineName, station: first.station, walkMin: first.walkMin };
 };
 
 const parseArea = (text: string | null): number | null => {
@@ -114,12 +135,14 @@ interface DetailInfo {
   transport: string | null;
   yearBuilt: string | null;
   floor: string | null;
+  imageUrl: string | null;
 }
 
 const scrapeDetailPage = async (page: Page, url: string): Promise<DetailInfo> => {
+  const empty: DetailInfo = { address: null, transport: null, yearBuilt: null, floor: null, imageUrl: null };
   try {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-    if (page.url().includes('/search/condition-list/')) return { address: null, transport: null, yearBuilt: null, floor: null };
+    if (page.url().includes('/search/condition-list/')) return empty;
 
     return page.evaluate(() => {
       let address: string | null = null;
@@ -139,12 +162,63 @@ const scrapeDetailPage = async (page: Page, url: string): Promise<DetailInfo> =>
           if ((text.includes('所在階') || text === '階数') && !floor) floor = td;
         });
       });
-      return { address, transport, yearBuilt, floor };
+
+      // 상세 페이지 메인 이미지 스크랩
+      let imageUrl: string | null = null;
+      const imgSelectors = [
+        'img.prg-lazy-display[data-original]',
+        '.swiper-slide img[data-original]',
+        '.ph-box img[data-original]',
+        '.main-visual img[data-original]',
+      ];
+      for (const sel of imgSelectors) {
+        const el = document.querySelector(sel) as HTMLImageElement | null;
+        const src = el?.getAttribute('data-original') ?? null;
+        if (src && !src.includes('transparent') && !src.includes('loading')) {
+          imageUrl = src;
+          break;
+        }
+      }
+
+      return { address, transport, yearBuilt, floor, imageUrl };
     });
   } catch {
-    return { address: null, transport: null, yearBuilt: null, floor: null };
+    return empty;
   }
 };
+
+const evaluateCards = (page: Page): Promise<ScrapedResult> =>
+  page.evaluate((baseUrl: string) => {
+    const cards = Array.from(document.querySelectorAll('table.unitSummary'));
+    const rawItems = cards.map((card) => {
+      const relUrl = card.querySelector('tr[data-href]')?.getAttribute('data-href') ?? null;
+      const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : baseUrl + relUrl) : null;
+      const price = card.querySelector('.priceLabel')?.textContent?.trim() ?? null;
+      const img = card.querySelector('img.prg-lazy-display');
+      const imageUrl = img?.getAttribute('data-original') ?? null;
+      const rawName = img?.getAttribute('alt')?.trim() ?? null;
+      const name = rawName ? rawName.replace(/\s+[^\s]+の間取り$/, '').trim() : null;
+      const floorEl = card.querySelector('span.u-text-sm.u-font-bold.u-mr-1');
+      const floor = floorEl?.textContent?.trim() ?? null;
+      let layout: string | null = null;
+      let buildingArea: string | null = null;
+      let landArea: string | null = null;
+      for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
+        const cells = Array.from(row.children);
+        for (let i = 0; i < cells.length - 1; i++) {
+          if (cells[i].tagName !== 'TH') continue;
+          const th = cells[i].textContent?.trim() ?? '';
+          const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
+          if (th.includes('間取り')) layout = td;
+          else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
+          else if (th.includes('土地面積')) landArea = td;
+        }
+      }
+      return { name, price, address: null, transport: null, layout, buildingArea, landArea, yearBuilt: null, floor, url: cardUrl, imageUrl };
+    });
+    const totalStr = document.querySelector('.totalNum')?.textContent?.trim() ?? '0';
+    return { rawItems, totalStr };
+  }, BASE_URL) as Promise<ScrapedResult>;
 
 const isBlocked = async (page: Page): Promise<boolean> => {
   const title = await page.evaluate(() => document.title);
@@ -179,56 +253,7 @@ const scrapePage = async (page: Page, url: string, retryOnBlock = true): Promise
     }
   }
 
-  return page.evaluate((baseUrl: string) => {
-    const cards = Array.from(document.querySelectorAll('table.unitSummary'));
-
-    const rawItems = cards.map((card) => {
-      // URL: tr[data-href] attribute (relative path)
-      const relUrl = card.querySelector('tr[data-href]')?.getAttribute('data-href') ?? null;
-      const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : baseUrl + relUrl) : null;
-
-      // Price
-      const price = card.querySelector('.priceLabel')?.textContent?.trim() ?? null;
-
-      // Transport
-      const transport = card.querySelector('td.traffic')?.textContent?.trim() ?? null;
-
-      // Image (lazy-loaded: src is placeholder gif, real URL is data-original)
-      const img = card.querySelector('img.prg-lazy-display');
-      const imageUrl = img?.getAttribute('data-original') ?? null;
-      // alt에 "建物名 ワンルームの間取り" 형식으로 간취가 붙어있어 제거
-      const rawName = img?.getAttribute('alt')?.trim() ?? null;
-      const name = rawName ? rawName.replace(/\s+[^\s]+の間取り$/, '').trim() : null;
-
-      // 층수 (3階 표시)
-      const floorEl = card.querySelector('span.u-text-sm.u-font-bold.u-mr-1');
-      const floor = floorEl?.textContent?.trim() ?? null;
-
-      // layout, buildingArea from verticalTable (address/yearBuilt는 상세 페이지에서)
-      let layout: string | null = null;
-      let buildingArea: string | null = null;
-      let landArea: string | null = null;
-
-      for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
-        const cells = Array.from(row.children);
-        for (let i = 0; i < cells.length - 1; i++) {
-          if (cells[i].tagName !== 'TH') continue;
-          const th = cells[i].textContent?.trim() ?? '';
-          const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
-          if (th.includes('間取り')) layout = td;
-          else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
-          else if (th.includes('土地面積')) landArea = td;
-        }
-      }
-
-      return { name, price, address: null, transport: null, layout, buildingArea, landArea, yearBuilt: null, floor, url: cardUrl, imageUrl };
-    });
-
-    // Total count (span.totalNum confirmed by test)
-    const totalStr = document.querySelector('.totalNum')?.textContent?.trim() ?? '0';
-
-    return { rawItems, totalStr };
-  }, BASE_URL) as Promise<ScrapedResult>;
+  return evaluateCards(page);
 };
 
 const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<PropertyItem[]> => {
@@ -291,36 +316,7 @@ const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<
           break;
         }
 
-        const result = await page.evaluate((baseUrl: string) => {
-          const cards = Array.from(document.querySelectorAll('table.unitSummary'));
-          const rawItems = cards.map((card) => {
-            const relUrl = card.querySelector('tr[data-href]')?.getAttribute('data-href') ?? null;
-            const cardUrl = relUrl ? (relUrl.startsWith('http') ? relUrl : baseUrl + relUrl) : null;
-            const price = card.querySelector('.priceLabel')?.textContent?.trim() ?? null;
-            const transport = card.querySelector('td.traffic')?.textContent?.trim() ?? null;
-            const img = card.querySelector('img.prg-lazy-display');
-            const imageUrl = img?.getAttribute('data-original') ?? null;
-            const rawName = img?.getAttribute('alt')?.trim() ?? null;
-            const name = rawName ? rawName.replace(/\s+[^\s]+の間取り$/, '').trim() : null;
-            const floorEl = card.querySelector('span.u-text-sm.u-font-bold.u-mr-1');
-            const floor = floorEl?.textContent?.trim() ?? null;
-            let layout: string | null = null;
-            let buildingArea: string | null = null, landArea: string | null = null;
-            for (const row of Array.from(card.querySelectorAll('table.verticalTable tr'))) {
-              const cells = Array.from(row.children);
-              for (let i = 0; i < cells.length - 1; i++) {
-                if (cells[i].tagName !== 'TH') continue;
-                const th = cells[i].textContent?.trim() ?? '';
-                const td = cells[i + 1]?.tagName === 'TD' ? cells[i + 1].textContent?.trim() ?? null : null;
-                if (th.includes('間取り')) layout = td;
-                else if (th.includes('専有面積') || th.includes('建物面積')) buildingArea = td;
-                else if (th.includes('土地面積')) landArea = td;
-              }
-            }
-            return { name, price, address: null, transport: null, layout, buildingArea, landArea, yearBuilt: null, floor, url: cardUrl, imageUrl };
-          });
-          return { rawItems, totalStr: document.querySelector('.totalNum')?.textContent?.trim() ?? '0' };
-        }, BASE_URL) as ScrapedResult;
+        const result = await evaluateCards(page);
 
         const items = buildItems(result.rawItems, urlType, area.name);
         allItems.push(...items);
@@ -340,7 +336,7 @@ const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<
     const tbl = getTableName(area.slug);
     const allUrls = allItems.map((i) => i.homes_url).filter((u): u is string => u !== null);
     const { rows: existingRows } = await pool.query<{ homes_url: string }>(
-      `SELECT homes_url FROM ${tbl} WHERE homes_url = ANY($1) AND address IS NOT NULL`,
+      `SELECT homes_url FROM ${tbl} WHERE homes_url = ANY($1) AND address IS NOT NULL AND walk_min IS NOT NULL AND transport IS NOT NULL`,
       [allUrls]
     ).catch(() => ({ rows: [] as { homes_url: string }[] }));
     const existingSet = new Set(existingRows.map((r) => r.homes_url));
@@ -361,6 +357,7 @@ const crawlAreaType = async (page: Page, area: Area, urlType: UrlType): Promise<
         item.station   = station;
         item.walk_min  = walkMin;
       }
+      if (detail.imageUrl && !item.image_url) item.image_url = detail.imageUrl;
       if (detail.yearBuilt) item.year_built = parseYear(detail.yearBuilt);
       if ((i + 1) % 10 === 0) console.log(`    상세 ${i + 1}/${newItems.length}건 완료`);
     }
@@ -392,41 +389,50 @@ const saveProperties = async (items: PropertyItem[], area: Area, crawledTypes: s
       const prev = existingMap.get(item.homes_url);
       const priceInitial = prev?.price_initial ?? prev?.price_num ?? item.price_num;
 
-      const result = await client.query<{ inserted: boolean }>(
-        `INSERT INTO ${tbl}
-          (name, price, price_num, price_initial, walk_min, address, transport,
-           land_area, land_area_num, building_area, building_area_num,
-           layout, year_built, line_name, area, station, property_type, homes_url, image_url)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-         ON CONFLICT (homes_url) DO UPDATE SET
-           price=$2, price_num=$3, walk_min=$5,
-           address    = COALESCE($6,  EXCLUDED.address),
-           transport  = COALESCE($7,  EXCLUDED.transport),
-           land_area=$8, land_area_num=$9, building_area=$10, building_area_num=$11,
-           layout=$12,
-           year_built = COALESCE($13, EXCLUDED.year_built),
-           line_name  = COALESCE($14, EXCLUDED.line_name),
-           station    = COALESCE($16, EXCLUDED.station),
-           walk_min   = COALESCE($5,  EXCLUDED.walk_min),
-           property_type=$17, image_url=$19, updated_at=NOW()
-         RETURNING (xmax = 0) AS inserted`,
-        [item.name, item.price, item.price_num, priceInitial, item.walk_min,
-         item.address, item.transport, item.land_area, item.land_area_num,
-         item.building_area, item.building_area_num, item.layout, item.year_built,
-         item.line_name, item.area, item.station, item.property_type,
-         item.homes_url, item.image_url]
-      );
+      await client.query('SAVEPOINT item_save');
+      try {
+        const result = await client.query<{ inserted: boolean }>(
+          `INSERT INTO ${tbl}
+            (name, price, price_num, price_initial, walk_min, address, transport,
+             land_area, land_area_num, building_area, building_area_num,
+             layout, year_built, line_name, area, station, property_type, homes_url, image_url)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+           ON CONFLICT (homes_url) DO UPDATE SET
+             price=$2, price_num=$3,
+             address    = COALESCE($6,  EXCLUDED.address),
+             transport  = COALESCE($7,  EXCLUDED.transport),
+             land_area=$8, land_area_num=$9, building_area=$10, building_area_num=$11,
+             layout=$12,
+             year_built = COALESCE($13, EXCLUDED.year_built),
+             line_name  = COALESCE($14, EXCLUDED.line_name),
+             station    = COALESCE($16, EXCLUDED.station),
+             walk_min   = COALESCE($5,  EXCLUDED.walk_min),
+             property_type=$17, image_url=$19, updated_at=NOW()
+           RETURNING (xmax = 0) AS inserted`,
+          [item.name, item.price, item.price_num, priceInitial, item.walk_min,
+           item.address, item.transport, item.land_area, item.land_area_num,
+           item.building_area, item.building_area_num, item.layout, item.year_built,
+           item.line_name, item.area, item.station, item.property_type,
+           item.homes_url, item.image_url]
+        );
 
-      if (result.rows[0].inserted) {
-        saved++;
-      } else {
-        updated++;
-        if (prev && prev.price_num !== item.price_num && item.property_type?.includes('chuko')) {
-          await client.query(
-            `INSERT INTO price_history (homes_url, old_price, new_price) VALUES ($1,$2,$3)`,
-            [item.homes_url, prev.price_num, item.price_num]
-          );
+        await client.query('RELEASE SAVEPOINT item_save');
+
+        if (result.rows[0].inserted) {
+          saved++;
+        } else {
+          updated++;
+          if (prev && prev.price_num !== item.price_num && item.property_type?.includes('chuko')) {
+            await client.query(
+              `INSERT INTO price_history (homes_url, old_price, new_price) VALUES ($1,$2,$3)`,
+              [item.homes_url, prev.price_num, item.price_num]
+            );
+          }
         }
+      } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT item_save');
+        await client.query('RELEASE SAVEPOINT item_save');
+        console.error(`  [저장 오류] ${item.homes_url}:`, (err as Error).message);
       }
     }
 

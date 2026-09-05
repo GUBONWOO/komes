@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     ports:
       - "10531:443"
-      - "84:80"
+      - "8084:80"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:

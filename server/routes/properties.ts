@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
+import { LINES } from '../lines';
 
 const router = Router();
 
@@ -30,8 +31,16 @@ router.get('/', async (req: Request, res: Response) => {
       conditions.push(cond.replace('?', `$${params.length}`));
     };
 
-    if (line)    push(line,    'line_name = ?');
-    if (area)    push(area,    'area = ?');
+    if (line) push(line, 'line_name = ?');
+    if (area) {
+      const areaNames = LINES.filter((l) => l.prefecture === area).map((l) => l.name);
+      if (areaNames.length === 1) {
+        push(areaNames[0], 'area = ?');
+      } else if (areaNames.length > 1) {
+        params.push(areaNames);
+        conditions.push(`area = ANY($${params.length})`);
+      }
+    }
     if (station) {
       const list = station.split(',').map((s) => s.trim()).filter(Boolean);
       if (list.length === 1) {
@@ -59,7 +68,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
     if (priceMin)     push(parseInt(priceMin, 10),      'price_num >= ?');
     if (priceMax)     push(parseInt(priceMax, 10),      'price_num <= ?');
-    if (yearFrom)     push(parseInt(yearFrom, 10),      '(CAST(year_built AS INTEGER) >= ? OR year_built IS NULL)');
+    if (yearFrom)     push(parseInt(yearFrom, 10),      'CAST(year_built AS INTEGER) >= ?');
     if (walkMax)      push(parseInt(walkMax, 10),       'walk_min <= ?');
     if (landAreaMin)  push(parseFloat(landAreaMin),     'land_area_num >= ?');
     if (landAreaMax)  push(parseFloat(landAreaMax),     'land_area_num <= ?');

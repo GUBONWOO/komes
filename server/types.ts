@@ -20,7 +20,6 @@ export interface UrlType {
 export interface CrawlGroup {
   id: string;
   name: string;
-  cron: string;
   areas: string[];
 }
 
