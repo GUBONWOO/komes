@@ -1,13 +1,13 @@
 # KOMES
 
-매일 직접 일본 부동산 사이트를 확인하는 게 번거로워서
-수도권 매물을 자동으로 수집하고 검색할 수 있도록 직접 만든 사내 도구입니다.
+毎日自分で不動産サイトを確認するのが面倒で、
+首都圏の物件を自動収集・検索できるよう自作した社内ツールです。
 
 ---
 
-## 기술 스택
+## 技術スタック
 
-| 구분 | 기술 |
+| 区分 | 技術 |
 |------|------|
 | Runtime | Node.js 20 |
 | Language | TypeScript |
@@ -20,76 +20,76 @@
 
 ---
 
-## 주요 기능
+## 主な機能
 
-- 도쿄 · 사이타마 · 치바 · 카나가와 매물 매일 자동 크롤링
-- 에리어 · 노선 · 역 · 가격 · 徒歩 · 토지/건물 면적 · 축년수 복합 필터
-- 중고 매물 가격 변경 이력 자동 기록 및 조회
-- 관심 목록 — 매물이 상장 폐지된 후에도 스냅샷으로 유지
-- Google OAuth 로그인 / 내부 IP 자동 관리자 인증
+- 東京・埼玉・千葉・神奈川の物件を毎日自動クロール
+- エリア・路線・駅・価格・徒歩・土地/建物面積・築年数の複合フィルター
+- 中古物件の価格変更履歴を自動記録・閲覧
+- ウォッチリスト — 物件が掲載終了後もスナップショットで保持
+- Google OAuthログイン / 内部IP自動管理者認証
 
 ---
 
-## 프론트엔드 구성
+## フロントエンド構成
 
 ```
 client/src/
-├── App.tsx          # 전체 상태 관리, 사이드바(노선 · 역), 레이아웃
-├── FilterBar.tsx    # 에리어 · 가격 · 축년수 등 칩 형태 필터
-├── PropertyCard.tsx # 매물 카드 (교통 파싱, 가격 이력 모달, 관심 버튼)
-├── Pagination.tsx   # 페이지네이션
-├── LoginPage.tsx    # Google OAuth 로그인 화면
-├── api.ts           # Axios 기반 API 클라이언트
-├── constants.ts     # 필터 옵션 상수 정의
-└── types.ts         # 공통 타입 정의
+├── App.tsx          # 全体の状態管理、サイドバー（路線・駅）、レイアウト
+├── FilterBar.tsx    # エリア・価格・築年数などチップ形式のフィルター
+├── PropertyCard.tsx # 物件カード（交通パース、価格履歴モーダル、お気に入りボタン）
+├── Pagination.tsx   # ページネーション
+├── LoginPage.tsx    # Google OAuthログイン画面
+├── api.ts           # Axiosベースのクライアント
+├── constants.ts     # フィルターオプション定数
+└── types.ts         # 共通型定義
 ```
 
-필터 변경 시 `AbortController`로 이전 요청을 즉시 취소해 응답 순서가 역전되는 문제를 방지합니다.
-페이지 이동 시에는 `skipCount` 옵션으로 COUNT 쿼리를 생략해 응답 속도를 개선했습니다.
+フィルター変更時は`AbortController`で前のリクエストを即キャンセルし、レスポンスの順序逆転を防いでいます。
+ページ移動時は`skipCount`オプションでCOUNTクエリを省略し、応答速度を改善しています。
 
 ---
 
-## 백엔드 구성
+## バックエンド構成
 
 ```
 server/
-├── index.ts              # Express 앱, 인증 미들웨어, 배치 크롤링 루프
-├── crawler.ts            # Puppeteer 크롤러 (페이지 파싱, 상세 스크랩, DB 저장)
-├── db.ts                 # DB 초기화, 테이블 · 뷰 생성, 마이그레이션
-├── lines.ts              # 30개 지역 정의 (slug, prefecture)
-├── types.ts              # 서버 공통 타입
+├── index.ts              # Expressアプリ、認証ミドルウェア、バッチクロールループ
+├── crawler.ts            # Puppeteerクローラー（ページパース、詳細スクレイプ、DB保存）
+├── db.ts                 # DB初期化、テーブル・ビュー作成、マイグレーション
+├── lines.ts              # 30地域の定義（slug、prefecture）
+├── types.ts              # サーバー共通型
 └── routes/
-    ├── properties.ts     # 매물 조회 API (다중 필터, 정렬, 페이지네이션)
-    ├── auth.ts           # Google OAuth 콜백, JWT 발급
-    ├── watchlist.ts      # 관심 목록 CRUD
-    └── favorites.ts      # 즐겨찾기
+    ├── properties.ts     # 物件取得API（複合フィルター、ソート、ページネーション）
+    ├── auth.ts           # Google OAuthコールバック、JWT発行
+    ├── watchlist.ts      # ウォッチリストCRUD
+    └── favorites.ts      # お気に入り
 ```
 
-**Cloudflare 우회**
-일반 Puppeteer는 Cloudflare Turnstile에 차단됩니다.
-실제 브라우저 핑거프린트를 사용하는 `puppeteer-real-browser`로 우회하고,
-차단 감지 시 30초 후 자동 재시도합니다.
+**Cloudflare回避**
+通常のPuppeteerはCloudflare Turnstileにブロックされます。
+実際のブラウザフィンガープリントを使用する`puppeteer-real-browser`で回避し、
+ブロック検知時は30秒後に自動リトライします。
 
-**지역별 분리 테이블 + UNION VIEW**
-30개 지역을 단일 테이블로 관리하면 동시 크롤링 시 쓰기 경합이 발생합니다.
-지역마다 별도 테이블(`prop_chiyoda_city` 등)을 두고 `properties` VIEW로 통합하는 방식으로 해결했습니다.
+**地域別テーブル分離 + UNION VIEW**
+30地域を単一テーブルで管理すると、同時クロール時に書き込み競合が発生します。
+地域ごとに別テーブル（`prop_chiyoda_city`など）を用意し、`properties` VIEWで統合する方式で解決しました。
 
-**크롤링 안전장치**
-수집량이 기존의 30% 미만이면 대량 삭제를 자동으로 보류합니다.
-신규 매물만 상세 페이지를 방문해 불필요한 요청을 최소화합니다.
+**クロール安全装置**
+収集件数が既存の30%未満になった場合、大量削除を自動で保留します。
+新規物件のみ詳細ページを訪問し、不要なリクエストを最小限に抑えています。
 
 ---
 
-## 서버 · 인프라 구성
+## サーバー・インフラ構成
 
 ```
 Docker Compose
-├── postgres   PostgreSQL 16 (데이터 영속 볼륨)
-├── server     Node.js 20 + Express (크롤러 포함)
-└── client     Nginx (React 빌드 서빙, HTTPS 종단, API 프록시)
+├── postgres   PostgreSQL 16（データ永続ボリューム）
+├── server     Node.js 20 + Express（クローラー含む）
+└── client     Nginx（Reactビルド配信、HTTPS終端、APIプロキシ）
 ```
 
-- Let's Encrypt 인증서로 HTTPS 적용
-- 내부 네트워크 IP는 JWT 없이 관리자 자동 인증
-- 크롤러는 서버 프로세스 내 무한 루프로 8개 그룹을 순환 실행 — 별도 스케줄러 불필요
-- 현재 수도권 11,000건 이상 매물 운영 중
+- Let's Encryptで HTTPS対応
+- 内部ネットワークIPはJWTなしで管理者自動認証
+- クローラーはサーバープロセス内の無限ループで8グループを順番に実行 — 別途スケジューラー不要
+- 現在、首都圏11,000件以上の物件を運用中
